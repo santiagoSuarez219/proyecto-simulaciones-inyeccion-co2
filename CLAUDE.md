@@ -527,6 +527,21 @@ Los specs completados **no se borran**; se marcan con `[DONE]` en el título.
   se desprenden de aquí.
 - Al mergear una rama a `development`, eliminarla inmediatamente.
 
+### `main` limpio de `docs/`, `specs/` y `CLAUDE.md`
+
+Estas tres rutas viven **solo en `development`**; `main` **nunca** debe contenerlas.
+Un `git merge development` normal las arrastraría a `main` (`.gitignore` y `merge=ours`
+no lo impiden). Para actualizar `main` usar **siempre**:
+
+```bash
+scripts/promote-to-main.sh            # merge sin docs/, specs/, CLAUDE.md (no hace push)
+scripts/promote-to-main.sh --push     # además sube a origin/main
+```
+
+Nunca hacer `git merge development` ni `git push ... main` a mano. El hook `pre-push`
+(`.githooks/pre-push`, activar con `git config core.hooksPath .githooks`) bloquea localmente
+cualquier push a `main` con esas rutas. Detalle completo en `docs/mantener-main-limpio.md`.
+
 ### Commits
 
 Mensajes **completamente en inglés**, siguiendo
