@@ -8,11 +8,18 @@ dependencies = [
     "numpy",
     "tqdm",
     "matplotlib",
+    "pandas",
+    "openpyxl",
+    "scikit-learn",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
+]
+db = [
+    "mysql-connector-python",
+    "pyodbc",
 ]
 
 [build-system]

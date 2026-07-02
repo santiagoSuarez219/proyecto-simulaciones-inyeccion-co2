@@ -15,3 +15,24 @@ outputs/logs/*
 !outputs/logs/.gitkeep
 outputs/figures/*
 !outputs/figures/.gitkeep
+
+# ETL (modelo_itm.etl, ex-cmg2tensor): datos y artefactos generados, no versionados
+data/raw/*
+data/processed/*
+*.pt
+*.npy
+*.npz
+
+raw_structure_report.txt
+standardization_log.txt
+result.txt
+data_listing.txt
+
+reports/
+reports/global_normalization/
+reports/batch_simulations_report.json
+reports/*_report.json
+reports/subset_split.csv
+
+*.log
+sql/simulaciones.db
