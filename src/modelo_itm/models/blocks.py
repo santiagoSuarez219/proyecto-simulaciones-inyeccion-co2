@@ -3,15 +3,39 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def _group_norm_num_groups(c: int, preferred: int = 8) -> int:
+    for g in (preferred, 4, 2, 1):
+        if c % g == 0:
+            return g
+    return 1
+
+
 class ResBlock(nn.Module):
-    def __init__(self, c, dropout_p=0.0):
+    """use_group_norm (M3, EXPERIMENTAL — default False): inserta GroupNorm
+    tras cada Conv2d. Sin verificar en un entrenamiento real completo (evaluar
+    en una rama exp/ segun el spec); cambia la arquitectura del modelo, por lo
+    que activar esta opcion invalida checkpoints entrenados con
+    use_group_norm=False (y viceversa)."""
+
+    def __init__(self, c, dropout_p=0.0, use_group_norm=False):
         super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(c, c, 3, 1, 1, padding_mode="replicate"),
-            nn.GELU(),
-            nn.Dropout2d(dropout_p),
-            nn.Conv2d(c, c, 3, 1, 1, padding_mode="replicate"),
-        )
+        if use_group_norm:
+            num_groups = _group_norm_num_groups(c)
+            self.block = nn.Sequential(
+                nn.Conv2d(c, c, 3, 1, 1, padding_mode="replicate"),
+                nn.GroupNorm(num_groups, c),
+                nn.GELU(),
+                nn.Dropout2d(dropout_p),
+                nn.Conv2d(c, c, 3, 1, 1, padding_mode="replicate"),
+                nn.GroupNorm(num_groups, c),
+            )
+        else:
+            self.block = nn.Sequential(
+                nn.Conv2d(c, c, 3, 1, 1, padding_mode="replicate"),
+                nn.GELU(),
+                nn.Dropout2d(dropout_p),
+                nn.Conv2d(c, c, 3, 1, 1, padding_mode="replicate"),
+            )
 
     def forward(self, x):
         return F.gelu(x + self.block(x))

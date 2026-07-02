@@ -21,6 +21,7 @@ from .pipeline.serial import (
     run_single_variable_layer_cubes_pipeline,
 )
 from .normalize import (
+    clip_percentiles,
     normalize_cubes_minmax,
     normalize_cubes_minmax_with_global_stats,
     normalize_series_minmax,
@@ -65,6 +66,7 @@ __all__ = [
     "run_layer_cubes_pipeline",
     "run_single_variable_layer_cubes_pipeline",
     # normalize
+    "clip_percentiles",
     "normalize_cubes_minmax",
     "normalize_cubes_minmax_with_global_stats",
     "normalize_series_minmax",

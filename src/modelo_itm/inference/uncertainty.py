@@ -3,11 +3,11 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from modelo_itm.config import Config, EPS
-from modelo_itm.utils import get_logger
+from modelo_itm.utils import EmitOnce, get_logger
 
 logger = get_logger(__name__)
 
-_MC_DROPOUT_WARNING_EMITTED = False
+_emit_once = EmitOnce()
 
 
 def model_has_dropout(model) -> bool:
@@ -28,8 +28,6 @@ def default_uncertainty_calibration():
 
 
 def predict_with_uncertainty(model, x, d, inj, passes: int):
-    global _MC_DROPOUT_WARNING_EMITTED
-
     if passes <= 1:
         pred = model(x, d, inj)
         return pred, torch.zeros_like(pred)
@@ -44,12 +42,11 @@ def predict_with_uncertainty(model, x, d, inj, passes: int):
             dropout_prev_training.append(module.training)
             module.train(True)
 
-    if not dropout_modules and not _MC_DROPOUT_WARNING_EMITTED:
+    if not dropout_modules and _emit_once.should_emit("mc_dropout_warning"):
         logger.warning(
             "[UNCERTAINTY WARNING] El modelo no tiene capas Dropout activas; "
             "MC Dropout devolvera desviacion estandar cero."
         )
-        _MC_DROPOUT_WARNING_EMITTED = True
 
     if not dropout_modules:
         with torch.no_grad():

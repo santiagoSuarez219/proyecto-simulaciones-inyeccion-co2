@@ -119,13 +119,18 @@ def save_epoch_visuals(model, dataset, epoch, out_dir, device, cfg: Config, cali
     path = Path(out_dir) / "visuals"
     ensure_dir(path)
 
+    # Generador local semillado (M4), no el modulo global `random` — la muestra
+    # visualizada es reproducible por epoca sin depender ni afectar otro estado
+    # de aleatoriedad global del proceso.
+    rng = random.Random(cfg.seed + epoch)
+
     with torch.no_grad():
         if isinstance(dataset, Subset):
-            rel_idx = random.randrange(len(dataset.indices))
+            rel_idx = rng.randrange(len(dataset.indices))
             base_idx = int(dataset.indices[rel_idx])
             base_dataset = dataset.dataset
         else:
-            base_idx = random.randrange(len(dataset))
+            base_idx = rng.randrange(len(dataset))
             base_dataset = dataset
 
         x, d, inj, y = base_dataset[base_idx]

@@ -5,18 +5,21 @@ from modelo_itm.models.blocks import FiLMSpectralBlock, ResBlock
 
 
 class PhysicalFNOArchitecture(nn.Module):
-    def __init__(self, time_steps=61, in_c=5, h_dim=128, modes=16, cond_dim=128, dropout_p=0.1):
+    def __init__(self, time_steps=61, in_c=5, h_dim=128, modes=16, cond_dim=128, dropout_p=0.1, use_group_norm=False):
         """in_c: canales totales que entran al encoder DESPUES de concatenar el
         canal de profundidad (ver forward: torch.cat([x, depth_map], dim=1)).
         Con el dataset real (4 propiedades estaticas: AFI/COH/PERM/PORO), x trae
         4 canales y depth_map 1 -> in_c=5 (default) es el total correcto, no un
-        "+1" adicional sobre 5."""
+        "+1" adicional sobre 5.
+
+        use_group_norm (M3, EXPERIMENTAL, default False): ver docstring de
+        ResBlock — cambia la arquitectura, invalida checkpoints previos."""
         super().__init__()
         self.time_steps = int(time_steps)
         self.encoder = nn.Sequential(
             nn.Conv2d(in_c, h_dim, 3, 1, 1, padding_mode="replicate"),
             nn.GELU(),
-            ResBlock(h_dim, dropout_p=dropout_p),
+            ResBlock(h_dim, dropout_p=dropout_p, use_group_norm=use_group_norm),
         )
         self.t_embed = nn.Embedding(self.time_steps, cond_dim)
         self.cond_mlp = nn.Sequential(
@@ -26,7 +29,7 @@ class PhysicalFNOArchitecture(nn.Module):
         )
         self.fno_blocks = nn.ModuleList([FiLMSpectralBlock(h_dim, modes, cond_dim=cond_dim) for _ in range(4)])
         self.decoder = nn.Sequential(
-            ResBlock(h_dim, dropout_p=dropout_p),
+            ResBlock(h_dim, dropout_p=dropout_p, use_group_norm=use_group_norm),
             nn.Conv2d(h_dim, h_dim // 2, 3, 1, 1, padding_mode="replicate"),
             nn.GELU(),
             nn.Conv2d(h_dim // 2, 2, 1),

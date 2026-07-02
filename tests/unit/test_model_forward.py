@@ -73,6 +73,40 @@ def test_model_trainable():
     assert model.fno_blocks[0].weight.grad is not None
 
 
+def test_model_with_group_norm_forward_is_finite():
+    """M3 (EXPERIMENTAL): con use_group_norm=True el forward sigue produciendo
+    shapes/valores correctos. GroupNorm requiere num_channels % num_groups == 0
+    — se prueba con h_dim no multiplo de 8 (12) para verificar el fallback de
+    _group_norm_num_groups."""
+    model = PhysicalFNOArchitecture(time_steps=4, h_dim=12, modes=4, use_group_norm=True)
+    model.eval()
+
+    x = torch.randn(2, 4, 16, 16)
+    d = torch.randn(2, 1)
+    inj = torch.randn(2, 4, 2)
+    with torch.no_grad():
+        pred = model(x, d, inj)
+
+    assert pred.shape == (2, 4, 2, 16, 16)
+    assert torch.isfinite(pred).all()
+
+
+def test_model_with_group_norm_has_groupnorm_layers():
+    from torch import nn
+
+    model = PhysicalFNOArchitecture(time_steps=4, h_dim=16, modes=4, use_group_norm=True)
+    has_group_norm = any(isinstance(m, nn.GroupNorm) for m in model.modules())
+    assert has_group_norm
+
+
+def test_model_without_group_norm_has_no_groupnorm_layers():
+    from torch import nn
+
+    model = PhysicalFNOArchitecture(time_steps=4, h_dim=16, modes=4, use_group_norm=False)
+    has_group_norm = any(isinstance(m, nn.GroupNorm) for m in model.modules())
+    assert not has_group_norm
+
+
 def test_model_in_c_matches_concatenated_depth_channel():
     """Regresion: in_c debe ser el TOTAL tras concatenar profundidad, no los
     canales de x antes de concatenar (bug introducido en la migracion de Fase 2

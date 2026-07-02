@@ -1,6 +1,8 @@
 import os
+import random
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset, random_split
 
@@ -18,17 +20,30 @@ def resolve_num_workers(requested: int | None) -> int:
     return min(8, max(2, cpu_count // 2))
 
 
+def _seed_worker(worker_id: int) -> None:
+    """worker_init_fn (M4): semilla numpy/random dentro de cada proceso worker
+    usando torch.initial_seed() — determinista siempre que el DataLoader reciba
+    un `generator` semillado (ver build_loader). Sin esto, cada worker hereda un
+    estado de RNG no reproducible entre corridas."""
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+
 def build_loader(dataset, cfg: Config, device: torch.device, shuffle: bool):
     num_workers = resolve_num_workers(cfg.num_workers)
+    generator = torch.Generator().manual_seed(cfg.seed)
     kwargs = {
         "batch_size": cfg.batch_size,
         "shuffle": shuffle,
         "num_workers": num_workers,
         "pin_memory": (device.type == "cuda"),
+        "generator": generator,
     }
     if num_workers > 0:
         kwargs["persistent_workers"] = bool(cfg.persistent_workers)
         kwargs["prefetch_factor"] = max(1, int(cfg.prefetch_factor))
+        kwargs["worker_init_fn"] = _seed_worker
     return DataLoader(dataset, **kwargs), num_workers
 
 

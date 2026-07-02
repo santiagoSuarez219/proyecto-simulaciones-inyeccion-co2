@@ -11,6 +11,29 @@ from typing import Any
 import numpy as np
 
 
+def clip_percentiles(
+    values: np.ndarray,
+    p_low: float = 1.0,
+    p_high: float = 99.0,
+) -> np.ndarray:
+    """Recorta valores fuera de [percentil p_low, percentil p_high] (B3:
+    robust scaling / mitigar sensibilidad a outliers del min-max plano).
+
+    Uso opcional ANTES de normalize_cubes_minmax*/normalize_series_minmax* —
+    NO se integra automaticamente en el pipeline: cambiar el comportamiento
+    default de normalizacion requeriria reprocesar datos reales (igual que
+    C1), fuera de alcance sin confirmacion explicita y sin datos en esta
+    sesion. Queda disponible para quien quiera evaluarla explicitamente."""
+    if values.size == 0:
+        return values
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return values
+    lo = np.percentile(finite, p_low)
+    hi = np.percentile(finite, p_high)
+    return np.clip(values, lo, hi)
+
+
 def normalize_cubes_minmax(
     cubes: list[np.ndarray],
     variable_order: list[str],

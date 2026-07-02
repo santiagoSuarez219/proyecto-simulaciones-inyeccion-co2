@@ -19,6 +19,7 @@ def build_run_signature(cfg: Config, train_path: Path, val_path: Path):
         "hidden_dim": int(cfg.hidden_dim),
         "spectral_modes": int(cfg.spectral_modes),
         "dropout_p": float(cfg.dropout_p),
+        "use_group_norm": bool(cfg.use_group_norm),
         "lr": float(cfg.lr),
         "weight_decay": float(cfg.weight_decay),
         "batch_size": int(cfg.batch_size),
@@ -85,7 +86,11 @@ def try_resume_training(
         return 1, float("inf"), None, False, [f"checkpoint no existe: {ckpt_path}"], None
 
     try:
-        ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+        # weights_only=True (B2): todo lo que se guarda en el checkpoint son
+        # tensores y tipos basicos (dict/list/str/float/int) — no requiere
+        # deserializacion de objetos Python arbitrarios. Mas seguro al cargar
+        # checkpoints de terceros; verificado compatible con el formato real.
+        ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
     except (RuntimeError, OSError, EOFError, ValueError, pickle.UnpicklingError) as exc:
         return 1, float("inf"), None, False, [f"checkpoint corrupto o ilegible ({ckpt_path.name}): {exc}"], None
 

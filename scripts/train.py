@@ -32,12 +32,20 @@ def build_parser():
     p.add_argument("--progress-interval", type=int, default=None, help="Intervalo de progreso en batches")
     p.add_argument("--device", default=None, help="Dispositivo: cuda, cpu, auto, gpu")
     p.add_argument("--use-amp", type=str_to_bool, default=None, help="Mixed precision (AMP) — solo activo en CUDA")
+    p.add_argument(
+        "--deterministic", type=str_to_bool, default=None,
+        help="Prioriza reproducibilidad sobre rendimiento en CUDA (cudnn.deterministic)",
+    )
     p.add_argument("--pause-hour", type=int, default=None, help="Hora para pausar entrenamiento (0-23)")
     p.add_argument("--auto-resume", type=str_to_bool, default=None, help="Reanudar desde checkpoint automáticamente")
     p.add_argument("--early-stopping-patience", type=int, default=None, help="Paciencia para early stopping")
     p.add_argument("--early-stopping-min-delta", type=float, default=None, help="Delta mínimo para early stopping")
     p.add_argument("--uncertainty-passes", type=int, default=None, help="Pasadas de MC Dropout para incertidumbre")
     p.add_argument("--dropout-p", type=float, default=None, help="Probabilidad de Dropout2d en ResBlock (MC Dropout)")
+    p.add_argument(
+        "--use-group-norm", type=str_to_bool, default=None,
+        help="EXPERIMENTAL (M3): GroupNorm en ResBlock — cambia la arquitectura, invalida checkpoints previos",
+    )
     p.add_argument("--save-epoch-pngs", type=str_to_bool, default=None, help="Guardar visualizaciones por época")
     return p
 

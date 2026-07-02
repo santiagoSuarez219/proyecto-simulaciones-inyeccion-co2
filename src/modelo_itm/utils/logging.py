@@ -35,3 +35,26 @@ def configure_logging(level: int = logging.INFO) -> None:
 def get_logger(name: str) -> logging.Logger:
     configure_logging()
     return logging.getLogger(name)
+
+
+class EmitOnce:
+    """Encapsula el patron 'emitir un mensaje una sola vez', reemplazando
+    variables globales sueltas de tipo `_XXX_EMITTED` con `global` (B1:
+    `_MC_DROPOUT_WARNING_EMITTED` en inference/uncertainty.py,
+    `_CUDA_BATCH_REPORT_EMITTED` en training/loop.py)."""
+
+    def __init__(self):
+        self._emitted: set[str] = set()
+
+    def should_emit(self, key: str) -> bool:
+        """True la primera vez que se llama con esta key; False despues."""
+        if key in self._emitted:
+            return False
+        self._emitted.add(key)
+        return True
+
+    def reset(self, key: str | None = None) -> None:
+        if key is None:
+            self._emitted.clear()
+        else:
+            self._emitted.discard(key)

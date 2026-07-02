@@ -15,7 +15,13 @@ def seed_everything(seed: int):
         torch.cuda.manual_seed_all(seed)
 
 
-def resolve_device(requested: str | None) -> torch.device:
+def resolve_device(requested: str | None, deterministic: bool = False) -> torch.device:
+    """deterministic=True (M4) prioriza reproducibilidad sobre rendimiento en CUDA:
+    cudnn.benchmark=False + cudnn.deterministic=True hacen que cuDNN use siempre el
+    mismo algoritmo (en vez de autotune, que puede variar entre corridas), a costa
+    de ser potencialmente mas lento. deterministic=False (default) preserva el
+    comportamiento previo a M4 (cudnn.benchmark=True, no determinista pero mas
+    rapido en la mayoria de los casos)."""
     requested = (requested or DEFAULT_DEVICE).strip().lower()
     if requested == "auto":
         requested = "cuda" if torch.cuda.is_available() else "cpu"
@@ -38,7 +44,11 @@ def resolve_device(requested: str | None) -> torch.device:
             )
 
         torch.cuda.set_device(cuda_index)
-        torch.backends.cudnn.benchmark = True
+        if deterministic:
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
+        else:
+            torch.backends.cudnn.benchmark = True
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
         torch.set_float32_matmul_precision("high")

@@ -12,6 +12,7 @@ class Config:
     overfit_sample_idx: int | None = None
     device: str | None = "cuda"
     seed: int = 42
+    deterministic: bool = False
 
     batch_size: int = 4
     epochs: int = 100
@@ -30,6 +31,7 @@ class Config:
     hidden_dim: int = 128
     spectral_modes: int = 16
     dropout_p: float = 0.1
+    use_group_norm: bool = False  # M3, EXPERIMENTAL — ver docstring en models/blocks.py::ResBlock
 
     auto_resume: bool = True
     pause_hour: int = 7

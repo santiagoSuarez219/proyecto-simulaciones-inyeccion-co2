@@ -33,14 +33,14 @@ from modelo_itm.training.metrics import (
 )
 from modelo_itm.training.losses import compute_loss_terms
 from modelo_itm.training.optim import build_param_groups, build_scheduler
-from modelo_itm.utils import describe_device, get_logger, resolve_device, seed_everything
+from modelo_itm.utils import EmitOnce, describe_device, get_logger, resolve_device, seed_everything
 from modelo_itm.utils.io import ensure_dir, load_json, save_json
 from modelo_itm.utils.time import get_next_pause_datetime
 from modelo_itm.visualization import save_epoch_visuals, save_history_plots
 
 logger = get_logger(__name__)
 
-_CUDA_BATCH_REPORT_EMITTED = False
+_emit_once = EmitOnce()
 
 
 def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, train: bool, scaler=None):
@@ -53,8 +53,6 @@ def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, t
     torch.autocast y el backward/step usan un GradScaler (M2) — pasar scaler=None
     (default) equivale a un GradScaler deshabilitado, sin cambiar el comportamiento
     previo a M2."""
-    global _CUDA_BATCH_REPORT_EMITTED
-
     if scaler is None:
         scaler = torch.amp.GradScaler(device.type if device.type == "cuda" else "cpu", enabled=False)
     autocast_enabled = bool(cfg.use_amp) and device.type == "cuda"
@@ -89,7 +87,7 @@ def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, t
                     "con gradientes invalidos (M6)."
                 )
 
-            if train and device.type == "cuda" and not _CUDA_BATCH_REPORT_EMITTED:
+            if train and device.type == "cuda" and _emit_once.should_emit("cuda_batch_report"):
                 cuda_idx = 0 if device.index is None else device.index
                 logger.debug(
                     "[CUDA] First training batch on GPU | "
@@ -98,7 +96,6 @@ def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, t
                     torch.cuda.memory_allocated(cuda_idx) / (1024**2),
                     torch.cuda.memory_reserved(cuda_idx) / (1024**2),
                 )
-                _CUDA_BATCH_REPORT_EMITTED = True
             if train:
                 optimizer.zero_grad(set_to_none=True)
                 scaler.scale(loss).backward()
@@ -198,7 +195,7 @@ def evaluate_epoch(model, loader, cfg: Config, device: torch.device, calibration
 
 
 def main(cfg: Config):
-    device = resolve_device(cfg.device)
+    device = resolve_device(cfg.device, deterministic=cfg.deterministic)
     logger.info("[DEVICE] %s", device)
     seed_everything(cfg.seed)
 
@@ -218,6 +215,7 @@ def main(cfg: Config):
         modes=cfg.spectral_modes,
         cond_dim=128,
         dropout_p=cfg.dropout_p,
+        use_group_norm=cfg.use_group_norm,
     ).to(device)
 
     param_groups = build_param_groups(model, weight_decay=cfg.weight_decay)

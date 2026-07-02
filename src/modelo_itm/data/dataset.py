@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from pathlib import Path
 
 import torch
@@ -12,7 +13,10 @@ def _k(p: Path):
 
 
 def load_pt(p: Path):
-    x = torch.load(p, map_location="cpu")
+    # weights_only=True (B2): los .pt de este pipeline son tensores o dicts con
+    # un tensor + metadata basica (str/list/dict) — no requieren deserializar
+    # objetos Python arbitrarios. Mas seguro al cargar .pt de terceros.
+    x = torch.load(p, map_location="cpu", weights_only=True)
     if isinstance(x, dict):
         for v in x.values():
             if torch.is_tensor(v):
@@ -54,10 +58,14 @@ def load_injection_series(inj_paths, time_steps: int):
 
 
 class DatasetLayers(Dataset):
-    def __init__(self, root, max_layer=60):
+    def __init__(self, root, max_layer=60, max_inj_cache_size=512):
         self.samples = []
         self.max_layer = int(max_layer)
-        self._inj_cache = {}
+        # Cache LRU acotado (B4): inj_key es por-simulacion (compartido por hasta
+        # 97 capas), no por-muestra, asi que el tamano teorico maximo ya es bajo
+        # (~n simulaciones), pero se limita explicitamente para datasets grandes.
+        self.max_inj_cache_size = int(max_inj_cache_size)
+        self._inj_cache = OrderedDict()
         root = Path(root)
         if not root.exists():
             return
@@ -108,4 +116,9 @@ class DatasetLayers(Dataset):
         if inj is None or inj.size(0) != y.shape[0]:
             inj = load_injection_series(s.get("inj_paths", []), y.shape[0])
             self._inj_cache[inj_key] = inj
+            self._inj_cache.move_to_end(inj_key)
+            if len(self._inj_cache) > self.max_inj_cache_size:
+                self._inj_cache.popitem(last=False)
+        else:
+            self._inj_cache.move_to_end(inj_key)
         return x, depth, inj, y

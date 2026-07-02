@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from modelo_itm.etl.histograms import (
+    _variable_keys,
     construir_histogramas_globales_por_capas,
     graficar_histograma_global,
 )
@@ -158,7 +159,7 @@ def test_construir_histogramas_globales_por_capas_matches_direct_histogram(tmp_p
     )
 
     assert output_path.exists()
-    assert set(result.keys()) == {"SF", "VD", "PERMEABILITY"}
+    assert set(_variable_keys(result)) == {"SF", "VD", "PERMEABILITY"}
 
     for var_name, values in direct_values.items():
         expected_edges = np.linspace(values.min(), values.max(), 5)
@@ -184,7 +185,7 @@ def test_construir_histogramas_fallback_to_two_pass_when_report_ranges_missing(t
         variables=["SF", "PERMEABILITY"],
     )
 
-    assert set(result.keys()) == {"SF", "PERMEABILITY"}
+    assert set(_variable_keys(result)) == {"SF", "PERMEABILITY"}
     for var_name in ("SF", "PERMEABILITY"):
         values = direct_values[var_name]
         expected_edges = np.linspace(values.min(), values.max(), 6)
