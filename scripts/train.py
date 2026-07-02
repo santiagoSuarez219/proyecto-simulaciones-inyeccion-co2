@@ -2,8 +2,8 @@
 import argparse
 from pathlib import Path
 
-from modelo_itm.config import Config
-from modelo_itm.training.loop import main
+from fno_co2.config import Config
+from fno_co2.training.loop import main
 
 
 def str_to_bool(value):

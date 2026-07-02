@@ -1,12 +1,12 @@
 import logging
 
-from modelo_itm.utils.logging import EmitOnce, _TqdmLoggingHandler, configure_logging, get_logger
+from fno_co2.utils.logging import EmitOnce, _TqdmLoggingHandler, configure_logging, get_logger
 
 
 def test_get_logger_returns_named_logger():
-    logger = get_logger("modelo_itm.test_module")
+    logger = get_logger("fno_co2.test_module")
     assert isinstance(logger, logging.Logger)
-    assert logger.name == "modelo_itm.test_module"
+    assert logger.name == "fno_co2.test_module"
 
 
 def test_configure_logging_is_idempotent():
@@ -28,7 +28,7 @@ def test_configure_logging_installs_tqdm_handler():
 
 
 def test_logger_emits_without_raising(capsys):
-    logger = get_logger("modelo_itm.test_emit")
+    logger = get_logger("fno_co2.test_emit")
     logger.info("mensaje de prueba %s", 42)  # no debe lanzar excepciones
 
 

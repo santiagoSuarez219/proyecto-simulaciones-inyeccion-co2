@@ -2,9 +2,9 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from modelo_itm.config import Config
-from modelo_itm.models.fno import PhysicalFNOArchitecture
-from modelo_itm.training.loop import run_one_epoch
+from fno_co2.config import Config
+from fno_co2.models.fno import PhysicalFNOArchitecture
+from fno_co2.training.loop import run_one_epoch
 
 
 def _build_dummy_loader(n_samples=6, time_steps=4, h=8, w=8, batch_size=2):
@@ -38,7 +38,7 @@ def test_run_one_epoch_returns_global_regression_metrics():
 def test_run_one_epoch_regression_metrics_match_manual_accumulation():
     """Los valores devueltos deben coincidir con acumular manualmente sobre
     los mismos batches (sin backprop, comparando forward puro)."""
-    from modelo_itm.training.metrics import (
+    from fno_co2.training.metrics import (
         finalize_global_regression_metrics,
         init_global_regression_accumulators,
         update_global_regression_accumulators,

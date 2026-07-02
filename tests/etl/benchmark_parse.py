@@ -36,8 +36,8 @@ def benchmark(path: Path, nz: int, nj: int, ni: int) -> None:
     if str(src) not in sys.path:
         sys.path.insert(0, str(src))
 
-    from modelo_itm.etl.parse_txt import _count_time_blocks_streaming, _parse_txt_with_times
-    from modelo_itm.etl.stats import scan_file_for_stats
+    from fno_co2.etl.parse_txt import _count_time_blocks_streaming, _parse_txt_with_times
+    from fno_co2.etl.stats import scan_file_for_stats
     import numpy as np
 
     file_size = path.stat().st_size

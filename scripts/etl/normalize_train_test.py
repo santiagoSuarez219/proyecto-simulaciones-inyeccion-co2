@@ -39,8 +39,8 @@ from typing import NamedTuple
 import numpy as np
 import torch
 
-from modelo_itm.etl.config import DEFAULT_GLOBAL_STATS_FILE
-from modelo_itm.etl.stats import load_global_stats
+from fno_co2.etl.config import DEFAULT_GLOBAL_STATS_FILE
+from fno_co2.etl.stats import load_global_stats
 
 
 # ---------------------------------------------------------------------------

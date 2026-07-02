@@ -1,14 +1,14 @@
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from modelo_itm.config import Config
-from modelo_itm.inference.uncertainty import (
+from fno_co2.config import Config
+from fno_co2.inference.uncertainty import (
     calibrate_uncertainty,
     default_uncertainty_calibration,
     model_has_dropout,
     predict_with_uncertainty,
 )
-from modelo_itm.models.fno import PhysicalFNOArchitecture
+from fno_co2.models.fno import PhysicalFNOArchitecture
 
 
 def test_model_has_dropout_true_with_default_config():

@@ -6,9 +6,9 @@ import random
 import torch
 from torch.utils.data import TensorDataset
 
-from modelo_itm.config import Config
-from modelo_itm.data.loaders import build_loader
-from modelo_itm.utils.device import resolve_device
+from fno_co2.config import Config
+from fno_co2.data.loaders import build_loader
+from fno_co2.utils.device import resolve_device
 
 
 def test_resolve_device_accepts_deterministic_flag_on_cpu():

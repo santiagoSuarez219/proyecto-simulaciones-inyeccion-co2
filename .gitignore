@@ -2,6 +2,7 @@
 /.claude
 CLAUDE.md
 skills-lock.json
+docs/
 __pycache__/
 *.pyc
 *.egg-info/
@@ -16,7 +17,7 @@ outputs/logs/*
 outputs/figures/*
 !outputs/figures/.gitkeep
 
-# ETL (modelo_itm.etl, ex-cmg2tensor): datos y artefactos generados, no versionados
+# ETL (fno_co2.etl, ex-cmg2tensor): datos y artefactos generados, no versionados
 data/raw/*
 data/processed/*
 *.pt

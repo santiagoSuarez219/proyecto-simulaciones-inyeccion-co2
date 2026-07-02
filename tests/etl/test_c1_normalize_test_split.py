@@ -11,14 +11,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from modelo_itm.etl.parse_txt import GridShape
+from fno_co2.etl.parse_txt import GridShape
 from tests.etl.conftest import NI, NJ, NZ
 
 
 @pytest.mark.slow
 def test_test_split_is_normalized_with_train_stats(tmp_path, multi_sim_dirs):
-    from modelo_itm.etl.pipeline.parallel import run_batch_pipeline
-    from modelo_itm.etl.stats import load_global_stats
+    from fno_co2.etl.pipeline.parallel import run_batch_pipeline
+    from fno_co2.etl.stats import load_global_stats
 
     # 6 train + 2 test (skip the 2 remaining, one of which is corrupt)
     dirs = multi_sim_dirs[:8]
@@ -73,7 +73,7 @@ def test_test_split_report_reflects_normalization(tmp_path, multi_sim_dirs):
     """layer_cubes_report.json for a test-split sim must record normalize=True,
     proving Phase 2 actually applied the train stats instead of silently
     skipping normalization for that split."""
-    from modelo_itm.etl.pipeline.parallel import run_batch_pipeline
+    from fno_co2.etl.pipeline.parallel import run_batch_pipeline
 
     dirs = multi_sim_dirs[:4]
     split_map = {d.name: ("train" if i < 2 else "test") for i, d in enumerate(dirs)}

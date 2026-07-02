@@ -8,9 +8,9 @@ Verificacion completa en GPU real queda pendiente (requiere hardware CUDA).
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from modelo_itm.config import Config
-from modelo_itm.models.fno import PhysicalFNOArchitecture
-from modelo_itm.training.loop import run_one_epoch
+from fno_co2.config import Config
+from fno_co2.models.fno import PhysicalFNOArchitecture
+from fno_co2.training.loop import run_one_epoch
 
 
 def _build_dummy_loader(n_samples=4, time_steps=4, h=8, w=8, batch_size=2):
@@ -48,7 +48,7 @@ def test_film_spectral_block_fft_stays_finite_under_simulated_autocast():
     """M2: la FFT dentro de FiLMSpectralBlock debe seguir siendo numericamente
     estable (forzada a float32) incluso si el bloque se invoca dentro de un
     contexto autocast activo (simulado aqui con bfloat16 en CPU)."""
-    from modelo_itm.models.blocks import FiLMSpectralBlock
+    from fno_co2.models.blocks import FiLMSpectralBlock
 
     block = FiLMSpectralBlock(c=8, modes=4, cond_dim=16)
     x = torch.randn(2, 8, 10, 10)

@@ -7,8 +7,8 @@ inyección de CO₂: desde archivos crudos de simulación CMG hasta el modelo en
 ## Estado
 
 ✅ **Fase 2 completada:** código de entrenamiento migrado a estructura modular en
-`src/modelo_itm/`.
-✅ **Fase A2 completada:** ETL `cmg2tensor` integrado como `src/modelo_itm/etl/`. El
+`src/fno_co2/`.
+✅ **Fase A2 completada:** ETL `cmg2tensor` integrado como `src/fno_co2/etl/`. El
 pipeline completo (ETL → modelo → entrenamiento) vive en un único paquete instalable.
 Próximo: Parte B (correcciones científicas y del ETL).
 
@@ -43,13 +43,13 @@ pytest tests/ -m "not slow" -v
 
 ```bash
 # Transformar simulaciones CMG crudas → tensores .pt
-python -m modelo_itm.etl \
+python -m fno_co2.etl \
   --all-simulations --raw-root data/raw --output-dir data/processed \
   --nz 20 --nj 100 --ni 100 \
   --parallel --n-workers 8
 ```
 
-Ver `python -m modelo_itm.etl --help` para todos los argumentos, y `CLAUDE.md` §Pipeline
+Ver `python -m fno_co2.etl --help` para todos los argumentos, y `CLAUDE.md` §Pipeline
 de datos para el flujo completo (split, estadísticas globales, transformación).
 
 ### Entrenar el modelo

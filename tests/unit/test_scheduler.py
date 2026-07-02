@@ -1,9 +1,9 @@
 import torch
 
-from modelo_itm.config import Config
-from modelo_itm.models.fno import PhysicalFNOArchitecture
-from modelo_itm.training.checkpoint import build_run_signature, save_training_checkpoint, try_resume_training
-from modelo_itm.training.optim import build_param_groups, build_scheduler
+from fno_co2.config import Config
+from fno_co2.models.fno import PhysicalFNOArchitecture
+from fno_co2.training.checkpoint import build_run_signature, save_training_checkpoint, try_resume_training
+from fno_co2.training.optim import build_param_groups, build_scheduler
 
 
 def _build_model_and_optimizer(cfg):

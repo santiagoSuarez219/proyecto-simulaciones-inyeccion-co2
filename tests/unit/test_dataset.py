@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from modelo_itm.data.dataset import DatasetLayers, load_injection_series
+from fno_co2.data.dataset import DatasetLayers, load_injection_series
 
 
 @pytest.fixture

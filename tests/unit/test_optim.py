@@ -1,7 +1,7 @@
 import torch
 
-from modelo_itm.models.fno import PhysicalFNOArchitecture
-from modelo_itm.training.optim import build_param_groups
+from fno_co2.models.fno import PhysicalFNOArchitecture
+from fno_co2.training.optim import build_param_groups
 
 
 def _build_model():

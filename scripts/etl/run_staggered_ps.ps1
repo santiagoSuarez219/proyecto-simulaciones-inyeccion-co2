@@ -23,7 +23,7 @@ foreach ($sim in $sims) {
         param($s, $r)
         Set-Location $r
         $arglist = @(
-            "-m", "modelo_itm.etl",
+            "-m", "fno_co2.etl",
             "--sf-path",        "data/raw/$s/SF.txt",
             "--vd-path",        "data/raw/$s/VD.txt",
             "--cohesion-path",  "data/raw/$s/cohesion.txt",

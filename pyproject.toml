@@ -1,5 +1,5 @@
 [project]
-name = "modelo-itm"
+name = "fno-co2"
 version = "0.1.0"
 description = "Modelo FNO para prediccion espacio-temporal de SF y VD en almacenamiento geologico de CO2"
 requires-python = ">=3.12,<3.13"

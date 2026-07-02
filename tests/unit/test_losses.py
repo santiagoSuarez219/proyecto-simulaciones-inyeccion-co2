@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from modelo_itm.config import Config
-from modelo_itm.training.losses import _segment_boundaries, compute_loss_terms, spatial_gradient_loss
+from fno_co2.config import Config
+from fno_co2.training.losses import _segment_boundaries, compute_loss_terms, spatial_gradient_loss
 
 
 def test_spatial_gradient_loss():

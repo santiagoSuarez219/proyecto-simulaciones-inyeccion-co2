@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from modelo_itm.etl.parse_txt import (
+from fno_co2.etl.parse_txt import (
     GridShape,
     _parse_txt_with_times,
     parse_cmg_file,
@@ -92,7 +92,7 @@ def test_no_nan_in_complete_file(cmg_file):
 
 def test_build_layer_cubes_shape(cmg_file, cmg_file_b):
     """build_layer_cubes returns NZ cubes each with shape (2, T, NJ, NI)."""
-    from modelo_itm.etl.parse_txt import build_layer_cubes
+    from fno_co2.etl.parse_txt import build_layer_cubes
     cubes = build_layer_cubes(cmg_file, cmg_file_b, NZ, NJ, NI)
     assert len(cubes) == NZ
     T = len(TIME_DAYS)
@@ -103,7 +103,7 @@ def test_build_layer_cubes_shape(cmg_file, cmg_file_b):
 
 def test_build_single_variable_layer_cubes_shape(cmg_file):
     """build_single_variable_layer_cubes returns NZ cubes each with shape (1, T, NJ, NI)."""
-    from modelo_itm.etl.parse_txt import build_single_variable_layer_cubes
+    from fno_co2.etl.parse_txt import build_single_variable_layer_cubes
     cubes = build_single_variable_layer_cubes(cmg_file, NZ, NJ, NI)
     assert len(cubes) == NZ
     T = len(TIME_DAYS)
@@ -117,8 +117,8 @@ def test_build_single_variable_layer_cubes_shape(cmg_file):
 
 def test_normalize_cubes_minmax_values_in_0_1(cmg_file):
     """After local min-max normalization, all values must be in [0, 1]."""
-    from modelo_itm.etl.parse_txt import build_layer_cubes
-    from modelo_itm.etl.normalize import normalize_cubes_minmax
+    from fno_co2.etl.parse_txt import build_layer_cubes
+    from fno_co2.etl.normalize import normalize_cubes_minmax
     cubes, _ = build_layer_cubes(cmg_file, cmg_file, NZ, NJ, NI, return_times=True)
     norm_cubes, meta = normalize_cubes_minmax(cubes, ["SF", "VD"])
     for cube in norm_cubes:
@@ -128,8 +128,8 @@ def test_normalize_cubes_minmax_values_in_0_1(cmg_file):
 
 def test_normalize_cubes_with_global_stats(cmg_file):
     """Global-stats normalization is identical to local when stats come from the same file."""
-    from modelo_itm.etl.parse_txt import build_layer_cubes
-    from modelo_itm.etl.normalize import normalize_cubes_minmax, normalize_cubes_minmax_with_global_stats
+    from fno_co2.etl.parse_txt import build_layer_cubes
+    from fno_co2.etl.normalize import normalize_cubes_minmax, normalize_cubes_minmax_with_global_stats
     cubes, _ = build_layer_cubes(cmg_file, cmg_file, NZ, NJ, NI, return_times=True)
     local_cubes, local_meta = normalize_cubes_minmax(list(cubes), ["SF", "VD"])
     # Build global_stats from the local metadata

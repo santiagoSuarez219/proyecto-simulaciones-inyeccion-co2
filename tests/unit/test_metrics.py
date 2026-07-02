@@ -3,7 +3,7 @@ import pytest
 import torch
 from sklearn.metrics import r2_score
 
-from modelo_itm.training.metrics import (
+from fno_co2.training.metrics import (
     finalize_global_regression_metrics,
     init_global_regression_accumulators,
     update_global_regression_accumulators,

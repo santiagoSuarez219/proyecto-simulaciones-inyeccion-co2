@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from modelo_itm.etl.parse_txt import GridShape, parse_txt_with_times, _parse_txt_with_times
+from fno_co2.etl.parse_txt import GridShape, parse_txt_with_times, _parse_txt_with_times
 from tests.etl.conftest import NI, NJ, NZ, TIME_DAYS
 
 
@@ -48,7 +48,7 @@ def test_corrupt_sim_does_not_abort_batch(tmp_path, multi_sim_dirs):
     multi_sim_dirs fixture includes 1 corrupt sim (#10).
     Batch must: succeed for 9 valid, fail for 1 corrupt, not abort.
     """
-    from modelo_itm.etl.pipeline.parallel import run_batch_pipeline
+    from fno_co2.etl.pipeline.parallel import run_batch_pipeline
 
     all_dirs = multi_sim_dirs  # 10 dirs, last one is corrupt
     grid = GridShape(nz=NZ, nj=NJ, ni=NI)
@@ -78,7 +78,7 @@ def test_all_valid_outputs_exist_despite_one_corrupt(tmp_path, multi_sim_dirs):
     """
     After a batch run with 1 corrupt sim, the 9 valid outputs must exist.
     """
-    from modelo_itm.etl.pipeline.parallel import run_batch_pipeline
+    from fno_co2.etl.pipeline.parallel import run_batch_pipeline
 
     all_dirs = multi_sim_dirs
     grid = GridShape(nz=NZ, nj=NJ, ni=NI)
@@ -109,7 +109,7 @@ def test_all_valid_outputs_exist_despite_one_corrupt(tmp_path, multi_sim_dirs):
 
 def test_scan_stats_on_empty_file(tmp_path):
     """scan_file_for_stats on an empty file should return vmin=None, vmax=None or raise gracefully."""
-    from modelo_itm.etl.stats import scan_file_for_stats
+    from fno_co2.etl.stats import scan_file_for_stats
     p = tmp_path / "empty.txt"
     p.write_text("", encoding="utf-8")
     # With an empty file and no RESULTS PROP, the fallback parse will return empty/nan tensor
@@ -124,7 +124,7 @@ def test_scan_stats_on_empty_file(tmp_path):
 
 def test_scan_stats_file_not_found(tmp_path):
     """scan_file_for_stats on a non-existent file must raise."""
-    from modelo_itm.etl.stats import scan_file_for_stats
+    from fno_co2.etl.stats import scan_file_for_stats
     p = tmp_path / "nonexistent.txt"
     with pytest.raises(Exception):
         scan_file_for_stats(p, "SF", nz=NZ, nj=NJ, ni=NI)
@@ -132,7 +132,7 @@ def test_scan_stats_file_not_found(tmp_path):
 
 def test_scan_simulation_with_missing_vd(tmp_path, cmg_file):
     """scan_simulation_for_stats with no VD file must return a result (not crash)."""
-    from modelo_itm.etl.stats import scan_simulation_for_stats
+    from fno_co2.etl.stats import scan_simulation_for_stats
     discovered = {
         "sf_path": cmg_file,
         "vd_path": None,  # missing VD

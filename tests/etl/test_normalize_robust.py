@@ -2,7 +2,7 @@
 automaticamente en el pipeline (ver docstring en normalize.py)."""
 import numpy as np
 
-from modelo_itm.etl.normalize import clip_percentiles
+from fno_co2.etl.normalize import clip_percentiles
 
 
 def test_clip_percentiles_clips_outliers():

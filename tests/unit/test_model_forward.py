@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from modelo_itm.models.fno import PhysicalFNOArchitecture
+from fno_co2.models.fno import PhysicalFNOArchitecture
 
 # in_c=5 (default) es el total de canales que entran al encoder DESPUES de
 # concatenar profundidad (forward: torch.cat([x, depth_map], dim=1)). Con el

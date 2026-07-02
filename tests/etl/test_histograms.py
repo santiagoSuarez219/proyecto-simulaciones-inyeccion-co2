@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from modelo_itm.etl.histograms import (
+from fno_co2.etl.histograms import (
     _variable_keys,
     construir_histogramas_globales_por_capas,
     graficar_histograma_global,
