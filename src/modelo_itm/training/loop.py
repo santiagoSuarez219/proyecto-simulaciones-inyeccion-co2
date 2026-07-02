@@ -11,6 +11,7 @@ from modelo_itm.data.loaders import build_datasets, build_loader
 from modelo_itm.inference.uncertainty import (
     calibrate_uncertainty,
     load_or_create_uncertainty_calibration,
+    model_has_dropout,
     predict_with_uncertainty,
     summarize_uncertainty,
 )
@@ -40,6 +41,10 @@ _CUDA_BATCH_REPORT_EMITTED = False
 
 
 def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, train: bool):
+    """Acumula tambien sf_r2/vd_r2/sf_rmse/vd_rmse globalmente durante el propio
+    paso de entrenamiento (misma acumulacion global de C3), aprovechando el pred/y
+    que ya se calculan para la loss — evita el forward extra sobre todo train que
+    evaluate_epoch(train_loader) hacia cada epoca (A3)."""
     global _CUDA_BATCH_REPORT_EMITTED
 
     model.train(train)
@@ -48,6 +53,7 @@ def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, t
         "sf_loss": torch.zeros((), device=device),
         "vd_loss": torch.zeros((), device=device),
     }
+    regression_accumulators = init_global_regression_accumulators(("sf", "vd"))
     num_batches = 0
     progress_interval = max(1, int(cfg.progress_interval))
 
@@ -81,6 +87,8 @@ def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, t
             running["loss"] += loss.detach()
             running["sf_loss"] += l_sf.detach()
             running["vd_loss"] += l_vd.detach()
+            update_global_regression_accumulators(regression_accumulators, "sf", pred[:, :, 0], y[:, :, 0])
+            update_global_regression_accumulators(regression_accumulators, "vd", pred[:, :, 1], y[:, :, 1])
 
         if num_batches == 1 or num_batches % progress_interval == 0:
             pbar.set_postfix(
@@ -90,9 +98,11 @@ def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, t
             )
 
     if num_batches == 0:
-        return {key: 0.0 for key in running}
-
-    return {key: float((value / num_batches).item()) for key, value in running.items()}
+        result = {key: 0.0 for key in running}
+    else:
+        result = {key: float((value / num_batches).item()) for key, value in running.items()}
+    result.update(finalize_global_regression_metrics(regression_accumulators))
+    return result
 
 
 def evaluate_epoch(model, loader, cfg: Config, device: torch.device, calibration: dict):
@@ -248,18 +258,25 @@ def main(cfg: Config):
     print(f"[SCHEDULE] Pausa programada a {pause_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
 
     for epoch in range(start_epoch, cfg.epochs + 1):
+        # train_metrics ya incluye sf_r2/vd_r2/sf_rmse/vd_rmse (acumulados globalmente
+        # durante el propio paso de entrenamiento) — evita el forward extra sobre todo
+        # train que antes hacia evaluate_epoch(train_loader) cada epoca (A3).
         train_metrics = run_one_epoch(model, train_loader, optimizer, cfg, device, train=True)
 
-        calibration = calibrate_uncertainty(model, val_loader, cfg, device)
-        save_json(calibration_path, calibration)
+        # Sin dropout (model_has_dropout=False) la calibracion es siempre el mismo
+        # default trivial; recalibrar y reescribir el JSON cada epoca no aporta nada
+        # (A3, ligado a C2). Solo se recalibra cuando la feature de incertidumbre
+        # esta realmente activa.
+        if model_has_dropout(model):
+            calibration = calibrate_uncertainty(model, val_loader, cfg, device)
+            save_json(calibration_path, calibration)
 
-        train_eval_metrics = evaluate_epoch(model, train_loader, cfg, device, calibration)
         val_metrics = evaluate_epoch(model, val_loader, cfg, device, calibration)
 
         history_row = {
             "epoch": epoch,
             "lr": float(optimizer.param_groups[0]["lr"]),
-            **{f"train_{k}": v for k, v in train_eval_metrics.items()},
+            **{f"train_{k}": v for k, v in train_metrics.items()},
             **{f"val_{k}": v for k, v in val_metrics.items()},
         }
         history.append(history_row)

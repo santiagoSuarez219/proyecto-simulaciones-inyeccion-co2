@@ -24,6 +24,12 @@ def load_pt(p: Path):
 
 
 def load_injection_series(inj_paths, time_steps: int):
+    """Carga series de inyeccion ya normalizadas por el ETL (min-max con
+    global_stats de train — mismo mecanismo que la normalizacion de C1),
+    solo alinea longitud a time_steps. No se re-normaliza aqui (ver A2:
+    antes se aplicaba log1p + reescalado local por muestra encima de
+    valores ya normalizados en [0,1] por el ETL, produciendo una escala
+    efectiva dependiente de cada muestra individual)."""
     if not inj_paths:
         return torch.zeros(time_steps, 2, dtype=torch.float32)
 
@@ -41,10 +47,9 @@ def load_injection_series(inj_paths, time_steps: int):
         series.append(torch.zeros(time_steps, dtype=torch.float32))
 
     inj = torch.stack(series[:2], dim=1)
+    # Red de seguridad: el ETL deberia producir valores limpios, pero se
+    # sanitiza por si llegan NaN/Inf de datos de entrada corruptos.
     inj = torch.nan_to_num(inj, nan=0.0, posinf=0.0, neginf=0.0)
-    inj = torch.log1p(torch.clamp(inj, min=0.0))
-    scale = inj.abs().amax().clamp_min(1e-8)
-    inj = inj / scale
     return inj
 
 

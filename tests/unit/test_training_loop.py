@@ -1,0 +1,67 @@
+import torch
+from torch.utils.data import DataLoader, TensorDataset
+
+from modelo_itm.config import Config
+from modelo_itm.models.fno import PhysicalFNOArchitecture
+from modelo_itm.training.loop import run_one_epoch
+
+
+def _build_dummy_loader(n_samples=6, time_steps=4, h=8, w=8, batch_size=2):
+    x = torch.randn(n_samples, 5, h, w)
+    d = torch.randn(n_samples, 1)
+    inj = torch.randn(n_samples, time_steps, 2)
+    y = torch.randn(n_samples, time_steps, 2, h, w)
+    dataset = TensorDataset(x, d, inj, y)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=False)
+
+
+def test_run_one_epoch_returns_global_regression_metrics():
+    """A3: run_one_epoch acumula sf_r2/vd_r2/sf_rmse/vd_rmse durante el propio
+    paso de entrenamiento (sin necesitar un evaluate_epoch(train_loader) extra)."""
+    time_steps = 4
+    cfg = Config(time_steps=time_steps, hidden_dim=16, spectral_modes=4, batch_size=2)
+    model = PhysicalFNOArchitecture(time_steps=time_steps, h_dim=16, modes=4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+    loader = _build_dummy_loader(time_steps=time_steps, batch_size=2)
+
+    result = run_one_epoch(model, loader, optimizer, cfg, torch.device("cpu"), train=True)
+
+    for key in ("loss", "sf_loss", "vd_loss", "sf_r2", "vd_r2", "sf_rmse", "vd_rmse"):
+        assert key in result, f"falta '{key}' en el resultado de run_one_epoch"
+        assert torch.isfinite(torch.tensor(result[key])), f"'{key}' no es finito: {result[key]}"
+
+    assert result["sf_rmse"] >= 0.0
+    assert result["vd_rmse"] >= 0.0
+
+
+def test_run_one_epoch_regression_metrics_match_manual_accumulation():
+    """Los valores devueltos deben coincidir con acumular manualmente sobre
+    los mismos batches (sin backprop, comparando forward puro)."""
+    from modelo_itm.training.metrics import (
+        finalize_global_regression_metrics,
+        init_global_regression_accumulators,
+        update_global_regression_accumulators,
+    )
+
+    time_steps = 4
+    cfg = Config(time_steps=time_steps, hidden_dim=16, spectral_modes=4, batch_size=2)
+    torch.manual_seed(123)
+    model = PhysicalFNOArchitecture(time_steps=time_steps, h_dim=16, modes=4)
+    model.eval()
+    loader = _build_dummy_loader(time_steps=time_steps, batch_size=2)
+
+    acc = init_global_regression_accumulators(("sf", "vd"))
+    with torch.no_grad():
+        for x, d, inj, y in loader:
+            pred = model(x, d, inj)
+            update_global_regression_accumulators(acc, "sf", pred[:, :, 0], y[:, :, 0])
+            update_global_regression_accumulators(acc, "vd", pred[:, :, 1], y[:, :, 1])
+    expected = finalize_global_regression_metrics(acc)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0)  # lr=0 -> no cambia pesos
+    result = run_one_epoch(model, loader, optimizer, cfg, torch.device("cpu"), train=False)
+
+    assert result["sf_r2"] == expected["sf_r2"]
+    assert result["vd_r2"] == expected["vd_r2"]
+    assert result["sf_rmse"] == expected["sf_rmse"]
+    assert result["vd_rmse"] == expected["vd_rmse"]
