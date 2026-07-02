@@ -26,7 +26,7 @@ def test_model_has_dropout_false_when_p_zero_is_still_true_but_std_is_zero():
     model = PhysicalFNOArchitecture(time_steps=4, h_dim=16, modes=4, dropout_p=0.0)
     assert model_has_dropout(model) is True  # la capa existe, aunque p=0.0
 
-    x = torch.randn(2, 5, 8, 8)
+    x = torch.randn(2, 4, 8, 8)
     d = torch.randn(2, 1)
     inj = torch.randn(2, 4, 2)
     _, pred_std = predict_with_uncertainty(model, x, d, inj, passes=10)
@@ -39,7 +39,7 @@ def test_mc_dropout_produces_nontrivial_std():
     torch.manual_seed(0)
     model = PhysicalFNOArchitecture(time_steps=4, h_dim=16, modes=4, dropout_p=0.2)
 
-    x = torch.randn(2, 5, 8, 8)
+    x = torch.randn(2, 4, 8, 8)
     d = torch.randn(2, 1)
     inj = torch.randn(2, 4, 2)
 
@@ -53,7 +53,7 @@ def test_mc_dropout_produces_nontrivial_std():
 def test_predict_with_uncertainty_single_pass_returns_zero_std():
     """passes<=1 debe seguir devolviendo std=0 (sin overhead de MC Dropout)."""
     model = PhysicalFNOArchitecture(time_steps=4, h_dim=16, modes=4, dropout_p=0.2)
-    x = torch.randn(1, 5, 8, 8)
+    x = torch.randn(1, 4, 8, 8)
     d = torch.randn(1, 1)
     inj = torch.randn(1, 4, 2)
 
@@ -71,7 +71,7 @@ def test_calibrate_uncertainty_produces_nondefault_alpha_with_dropout():
     model = PhysicalFNOArchitecture(time_steps=time_steps, h_dim=16, modes=4, dropout_p=0.2)
 
     n = 4
-    x = torch.randn(n, 5, 8, 8)
+    x = torch.randn(n, 4, 8, 8)
     d = torch.randn(n, 1)
     inj = torch.randn(n, time_steps, 2)
     y = torch.randn(n, time_steps, 2, 8, 8)

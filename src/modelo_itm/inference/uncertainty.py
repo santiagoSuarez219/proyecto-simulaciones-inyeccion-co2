@@ -3,6 +3,9 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from modelo_itm.config import Config, EPS
+from modelo_itm.utils import get_logger
+
+logger = get_logger(__name__)
 
 _MC_DROPOUT_WARNING_EMITTED = False
 
@@ -42,7 +45,10 @@ def predict_with_uncertainty(model, x, d, inj, passes: int):
             module.train(True)
 
     if not dropout_modules and not _MC_DROPOUT_WARNING_EMITTED:
-        print("[UNCERTAINTY WARNING] El modelo no tiene capas Dropout activas; MC Dropout devolvera desviacion estandar cero.")
+        logger.warning(
+            "[UNCERTAINTY WARNING] El modelo no tiene capas Dropout activas; "
+            "MC Dropout devolvera desviacion estandar cero."
+        )
         _MC_DROPOUT_WARNING_EMITTED = True
 
     if not dropout_modules:
@@ -165,7 +171,7 @@ def load_or_create_uncertainty_calibration(path, model, val_loader, cfg: Config,
     if not model_has_dropout(model):
         calibration = default_uncertainty_calibration()
         save_json(path, calibration)
-        print("[UNCERTAINTY] Modelo sin Dropout: calibracion desactivada para no frenar el entrenamiento.")
+        logger.info("[UNCERTAINTY] Modelo sin Dropout: calibracion desactivada para no frenar el entrenamiento.")
         return calibration
 
     if path.exists():

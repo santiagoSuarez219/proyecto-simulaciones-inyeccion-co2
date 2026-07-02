@@ -6,10 +6,15 @@ from modelo_itm.models.blocks import FiLMSpectralBlock, ResBlock
 
 class PhysicalFNOArchitecture(nn.Module):
     def __init__(self, time_steps=61, in_c=5, h_dim=128, modes=16, cond_dim=128, dropout_p=0.1):
+        """in_c: canales totales que entran al encoder DESPUES de concatenar el
+        canal de profundidad (ver forward: torch.cat([x, depth_map], dim=1)).
+        Con el dataset real (4 propiedades estaticas: AFI/COH/PERM/PORO), x trae
+        4 canales y depth_map 1 -> in_c=5 (default) es el total correcto, no un
+        "+1" adicional sobre 5."""
         super().__init__()
         self.time_steps = int(time_steps)
         self.encoder = nn.Sequential(
-            nn.Conv2d(in_c + 1, h_dim, 3, 1, 1, padding_mode="replicate"),
+            nn.Conv2d(in_c, h_dim, 3, 1, 1, padding_mode="replicate"),
             nn.GELU(),
             ResBlock(h_dim, dropout_p=dropout_p),
         )

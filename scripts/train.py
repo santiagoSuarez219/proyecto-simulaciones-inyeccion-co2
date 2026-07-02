@@ -20,12 +20,18 @@ def build_parser():
     p.add_argument("--epochs", type=int, default=None, help="Número de épocas de entrenamiento")
     p.add_argument("--overfit-sample-idx", type=int, default=None, help="Índice de muestra para overfitting test")
     p.add_argument("--lr", type=float, default=None, help="Learning rate inicial")
+    p.add_argument(
+        "--lr-scheduler", default=None,
+        help="Scheduler de LR: 'cosine' o 'none' para desactivarlo (default: cosine)",
+    )
+    p.add_argument("--lr-min", type=float, default=None, help="LR minimo del scheduler coseno (eta_min)")
     p.add_argument("--batch-size", type=int, default=None, help="Tamaño del batch")
     p.add_argument("--num-workers", type=int, default=None, help="Número de workers para DataLoader")
     p.add_argument("--prefetch-factor", type=int, default=None, help="Prefetch factor para DataLoader")
     p.add_argument("--persistent-workers", type=str_to_bool, default=None, help="Usar persistent workers")
     p.add_argument("--progress-interval", type=int, default=None, help="Intervalo de progreso en batches")
     p.add_argument("--device", default=None, help="Dispositivo: cuda, cpu, auto, gpu")
+    p.add_argument("--use-amp", type=str_to_bool, default=None, help="Mixed precision (AMP) — solo activo en CUDA")
     p.add_argument("--pause-hour", type=int, default=None, help="Hora para pausar entrenamiento (0-23)")
     p.add_argument("--auto-resume", type=str_to_bool, default=None, help="Reanudar desde checkpoint automáticamente")
     p.add_argument("--early-stopping-patience", type=int, default=None, help="Paciencia para early stopping")
@@ -44,5 +50,8 @@ if __name__ == "__main__":
     for key, value in vars(args).items():
         if value is not None:
             setattr(cfg, key, value)
+
+    if cfg.lr_scheduler is not None and cfg.lr_scheduler.lower() == "none":
+        cfg.lr_scheduler = None
 
     main(cfg)

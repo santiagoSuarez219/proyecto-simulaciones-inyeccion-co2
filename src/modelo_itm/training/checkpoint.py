@@ -55,12 +55,14 @@ def save_training_checkpoint(
     best_val_loss: float,
     metrics_row: dict,
     run_signature: dict,
+    scheduler=None,
 ):
     ckpt = {
         "epoch": int(epoch),
         "best_val_loss": float(best_val_loss),
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
         "config": asdict(cfg),
         "metrics": metrics_row,
         "run_signature": run_signature,
@@ -77,6 +79,7 @@ def try_resume_training(
     optimizer,
     device: torch.device,
     run_signature: dict,
+    scheduler=None,
 ):
     if not ckpt_path.exists():
         return 1, float("inf"), None, False, [f"checkpoint no existe: {ckpt_path}"], None
@@ -95,6 +98,17 @@ def try_resume_training(
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
     except (RuntimeError, KeyError, ValueError) as exc:
         return 1, float("inf"), None, False, [f"estado invalido en {ckpt_path.name}: {exc}"], None
+
+    if scheduler is not None:
+        scheduler_state = ckpt.get("scheduler_state_dict")
+        if scheduler_state is not None:
+            try:
+                scheduler.load_state_dict(scheduler_state)
+            except (RuntimeError, KeyError, ValueError) as exc:
+                return 1, float("inf"), None, False, [f"estado de scheduler invalido en {ckpt_path.name}: {exc}"], None
+        # Si el checkpoint no tiene estado de scheduler (guardado antes de M1, o
+        # sin scheduler activo en esa corrida), el scheduler actual arranca desde
+        # su estado inicial — no aborta el resume por esto.
 
     start_epoch = int(ckpt["epoch"]) + 1
     best_val_loss = float(ckpt.get("best_val_loss", float("inf")))

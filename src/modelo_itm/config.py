@@ -16,12 +16,15 @@ class Config:
     batch_size: int = 4
     epochs: int = 100
     lr: float = 8e-4
+    lr_scheduler: str | None = "cosine"
+    lr_min: float = 1e-6
     weight_decay: float = 1e-4
     num_workers: int | None = None
     prefetch_factor: int = 2
     persistent_workers: bool = True
     progress_interval: int = 10
     grad_clip: float = 1.0
+    use_amp: bool = False
 
     time_steps: int = 61
     hidden_dim: int = 128

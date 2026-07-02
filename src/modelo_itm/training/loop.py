@@ -32,20 +32,32 @@ from modelo_itm.training.metrics import (
     update_running_stats,
 )
 from modelo_itm.training.losses import compute_loss_terms
-from modelo_itm.utils import describe_device, resolve_device, seed_everything
+from modelo_itm.training.optim import build_param_groups, build_scheduler
+from modelo_itm.utils import describe_device, get_logger, resolve_device, seed_everything
 from modelo_itm.utils.io import ensure_dir, load_json, save_json
 from modelo_itm.utils.time import get_next_pause_datetime
 from modelo_itm.visualization import save_epoch_visuals, save_history_plots
 
+logger = get_logger(__name__)
+
 _CUDA_BATCH_REPORT_EMITTED = False
 
 
-def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, train: bool):
+def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, train: bool, scaler=None):
     """Acumula tambien sf_r2/vd_r2/sf_rmse/vd_rmse globalmente durante el propio
     paso de entrenamiento (misma acumulacion global de C3), aprovechando el pred/y
     que ya se calculan para la loss — evita el forward extra sobre todo train que
-    evaluate_epoch(train_loader) hacia cada epoca (A3)."""
+    evaluate_epoch(train_loader) hacia cada epoca (A3).
+
+    Con cfg.use_amp=True (y device.type=="cuda") el forward+loss corren bajo
+    torch.autocast y el backward/step usan un GradScaler (M2) — pasar scaler=None
+    (default) equivale a un GradScaler deshabilitado, sin cambiar el comportamiento
+    previo a M2."""
     global _CUDA_BATCH_REPORT_EMITTED
+
+    if scaler is None:
+        scaler = torch.amp.GradScaler(device.type if device.type == "cuda" else "cpu", enabled=False)
+    autocast_enabled = bool(cfg.use_amp) and device.type == "cuda"
 
     model.train(train)
     running = {
@@ -65,22 +77,41 @@ def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, t
         y = y.to(device, non_blocking=True)
 
         with torch.set_grad_enabled(train):
-            pred = model(x, d, inj)
-            loss, l_sf, l_vd = compute_loss_terms(pred, y, cfg)
+            with torch.autocast(device_type=device.type, enabled=autocast_enabled):
+                pred = model(x, d, inj)
+                loss, l_sf, l_vd = compute_loss_terms(pred, y, cfg)
+
+            if not torch.isfinite(loss):
+                raise RuntimeError(
+                    f"[NaN/Inf GUARD] Loss no finita en batch {num_batches + 1} "
+                    f"(train={train}): loss={loss.item()}, sf_loss={l_sf.item()}, "
+                    f"vd_loss={l_vd.item()}. Abortando para evitar corromper el modelo "
+                    "con gradientes invalidos (M6)."
+                )
+
             if train and device.type == "cuda" and not _CUDA_BATCH_REPORT_EMITTED:
                 cuda_idx = 0 if device.index is None else device.index
-                print(
+                logger.debug(
                     "[CUDA] First training batch on GPU | "
-                    f"x={x.device} y={y.device} pred={pred.device} | "
-                    f"allocated={torch.cuda.memory_allocated(cuda_idx) / (1024**2):.1f} MiB | "
-                    f"reserved={torch.cuda.memory_reserved(cuda_idx) / (1024**2):.1f} MiB"
+                    "x=%s y=%s pred=%s | allocated=%.1f MiB | reserved=%.1f MiB",
+                    x.device, y.device, pred.device,
+                    torch.cuda.memory_allocated(cuda_idx) / (1024**2),
+                    torch.cuda.memory_reserved(cuda_idx) / (1024**2),
                 )
                 _CUDA_BATCH_REPORT_EMITTED = True
             if train:
                 optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
-                optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
+                if not torch.isfinite(grad_norm):
+                    raise RuntimeError(
+                        f"[NaN/Inf GUARD] Norma de gradiente no finita en batch "
+                        f"{num_batches + 1}: grad_norm={grad_norm.item()}. Abortando para "
+                        "evitar corromper el modelo (M6)."
+                    )
+                scaler.step(optimizer)
+                scaler.update()
 
         num_batches += 1
         with torch.no_grad():
@@ -108,8 +139,12 @@ def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, t
 def evaluate_epoch(model, loader, cfg: Config, device: torch.device, calibration: dict):
     """sf_r2/vd_r2/sf_rmse/vd_rmse se calculan una sola vez al final sobre el dataset
     completo (acumulación global de SS_res/SS_tot y suma de errores cuadrados). El resto
-    de las métricas (loss, incertidumbre) sí son promediables por batch."""
+    de las métricas (loss, incertidumbre) sí son promediables por batch.
+
+    El forward corre bajo torch.autocast si cfg.use_amp esta activo (M2) — misma
+    politica de memoria que run_one_epoch, sin necesitar GradScaler (no hay backward)."""
     model.eval()
+    autocast_enabled = bool(cfg.use_amp) and device.type == "cuda"
     running_keys = (
         "loss",
         "sf_loss",
@@ -133,8 +168,9 @@ def evaluate_epoch(model, loader, cfg: Config, device: torch.device, calibration
             inj = inj.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
 
-            pred, pred_std = predict_with_uncertainty(model, x, d, inj, cfg.uncertainty_passes)
-            loss, metrics = compute_all_metrics(pred, y, cfg)
+            with torch.autocast(device_type=device.type, enabled=autocast_enabled):
+                pred, pred_std = predict_with_uncertainty(model, x, d, inj, cfg.uncertainty_passes)
+                loss, metrics = compute_all_metrics(pred, y, cfg)
             metrics.update(summarize_uncertainty(pred_std, calibration))
 
             update_global_regression_accumulators(regression_accumulators, "sf", pred[:, :, 0], y[:, :, 0])
@@ -163,14 +199,17 @@ def evaluate_epoch(model, loader, cfg: Config, device: torch.device, calibration
 
 def main(cfg: Config):
     device = resolve_device(cfg.device)
-    print(f"[DEVICE] {device}")
+    logger.info("[DEVICE] %s", device)
     seed_everything(cfg.seed)
 
     train_ds, val_ds, train_path, val_path = build_datasets(cfg)
     train_loader, train_num_workers = build_loader(train_ds, cfg, device, shuffle=True)
     val_loader, val_num_workers = build_loader(val_ds, cfg, device, shuffle=False)
 
-    print(f"[DATA] train={len(train_ds)} val={len(val_ds)} | workers train={train_num_workers} val={val_num_workers}")
+    logger.info(
+        "[DATA] train=%d val=%d | workers train=%d val=%d",
+        len(train_ds), len(val_ds), train_num_workers, val_num_workers,
+    )
 
     model = PhysicalFNOArchitecture(
         time_steps=cfg.time_steps,
@@ -181,7 +220,13 @@ def main(cfg: Config):
         dropout_p=cfg.dropout_p,
     ).to(device)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
+    param_groups = build_param_groups(model, weight_decay=cfg.weight_decay)
+    optimizer = torch.optim.AdamW(param_groups, lr=cfg.lr)
+    scheduler = build_scheduler(optimizer, cfg)
+    amp_enabled = bool(cfg.use_amp) and device.type == "cuda"
+    scaler = torch.amp.GradScaler(device.type if device.type == "cuda" else "cpu", enabled=amp_enabled)
+    if cfg.use_amp and device.type != "cuda":
+        logger.warning("[AMP] use_amp=True pero el dispositivo no es CUDA; se ignora (M2 solo aplica en GPU).")
 
     out_dir = Path(cfg.output_dir)
     ensure_dir(out_dir)
@@ -201,7 +246,7 @@ def main(cfg: Config):
             "run_signature": {k: str(v) for k, v in run_signature.items()},
         },
     )
-    print(f"[MODEL] Parametros entrenables: {count_parameters(model):,}")
+    logger.info("[MODEL] Parametros entrenables: %s", f"{count_parameters(model):,}")
 
     history_path = out_dir / "metrics_history.json"
     calibration_path = out_dir / "uncertainty_calibration.json"
@@ -223,46 +268,46 @@ def main(cfg: Config):
                 continue
 
             start_epoch, best_val_loss, last_metrics, resumed, reasons, resume_path = try_resume_training(
-                candidate, model, optimizer, device, run_signature
+                candidate, model, optimizer, device, run_signature, scheduler=scheduler
             )
             if resumed:
                 resumed_from = resume_path
                 history = load_json(history_path, default=[])
-                print(
-                    f"[RESUME] Cargado {resume_path.name}. "
-                    f"Continuando desde epoch {start_epoch} (ultima completa: {start_epoch - 1})"
+                logger.info(
+                    "[RESUME] Cargado %s. Continuando desde epoch %d (ultima completa: %d)",
+                    resume_path.name, start_epoch, start_epoch - 1,
                 )
                 if last_metrics is not None:
-                    print(
-                        f"[RESUME] Ultimo val_loss={last_metrics.get('val_loss', 'n/a')} | "
-                        f"best val_loss={best_val_loss:.6f}"
+                    logger.info(
+                        "[RESUME] Ultimo val_loss=%s | best val_loss=%.6f",
+                        last_metrics.get("val_loss", "n/a"), best_val_loss,
                     )
                 break
 
-            print(f"[RESUME SKIP] {candidate.name} no se pudo reanudar:")
+            logger.warning("[RESUME SKIP] %s no se pudo reanudar:", candidate.name)
             for reason in reasons:
-                print(f"  - {reason}")
+                logger.warning("  - %s", reason)
 
         if resumed_from is None:
-            print("[START] Iniciando una corrida nueva para la configuracion actual")
+            logger.info("[START] Iniciando una corrida nueva para la configuracion actual")
     else:
-        print("[START] Entrenando desde cero")
+        logger.info("[START] Entrenando desde cero")
 
     if start_epoch > cfg.epochs:
-        print(f"El entrenamiento ya alcanzo la epoch {cfg.epochs}.")
+        logger.info("El entrenamiento ya alcanzo la epoch %d.", cfg.epochs)
         return
 
     calibration = load_or_create_uncertainty_calibration(calibration_path, model, val_loader, cfg, device)
 
     early_stopping_counter = 0
     pause_datetime = get_next_pause_datetime(cfg.pause_hour)
-    print(f"[SCHEDULE] Pausa programada a {pause_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info("[SCHEDULE] Pausa programada a %s", pause_datetime.strftime("%Y-%m-%d %H:%M:%S"))
 
     for epoch in range(start_epoch, cfg.epochs + 1):
         # train_metrics ya incluye sf_r2/vd_r2/sf_rmse/vd_rmse (acumulados globalmente
         # durante el propio paso de entrenamiento) — evita el forward extra sobre todo
         # train que antes hacia evaluate_epoch(train_loader) cada epoca (A3).
-        train_metrics = run_one_epoch(model, train_loader, optimizer, cfg, device, train=True)
+        train_metrics = run_one_epoch(model, train_loader, optimizer, cfg, device, train=True, scaler=scaler)
 
         # Sin dropout (model_has_dropout=False) la calibracion es siempre el mismo
         # default trivial; recalibrar y reescribir el JSON cada epoca no aporta nada
@@ -284,18 +329,15 @@ def main(cfg: Config):
         save_json(history_path, history)
         save_history_plots(history, out_dir)
 
-        print(
-            f"E{epoch:03d} | "
-            f"train_loss={train_metrics['loss']:.5f} | "
-            f"val_loss={history_row['val_loss']:.5f} | "
-            f"val_sf_rmse={history_row['val_sf_rmse']:.5f} | "
-            f"val_vd_rmse={history_row['val_vd_rmse']:.5f} | "
-            f"val_sf_r2={history_row['val_sf_r2']:.4f} | "
-            f"val_vd_r2={history_row['val_vd_r2']:.4f} | "
-            f"val_sf_unc={history_row['val_sf_uncertainty_mean']:.4f} | "
-            f"val_vd_unc={history_row['val_vd_uncertainty_mean']:.4f} | "
-            f"val_sf_conf={history_row['val_sf_confidence_mean']:.4f} | "
-            f"val_vd_conf={history_row['val_vd_confidence_mean']:.4f}"
+        logger.info(
+            "E%03d | train_loss=%.5f | val_loss=%.5f | val_sf_rmse=%.5f | "
+            "val_vd_rmse=%.5f | val_sf_r2=%.4f | val_vd_r2=%.4f | val_sf_unc=%.4f | "
+            "val_vd_unc=%.4f | val_sf_conf=%.4f | val_vd_conf=%.4f",
+            epoch, train_metrics["loss"], history_row["val_loss"],
+            history_row["val_sf_rmse"], history_row["val_vd_rmse"],
+            history_row["val_sf_r2"], history_row["val_vd_r2"],
+            history_row["val_sf_uncertainty_mean"], history_row["val_vd_uncertainty_mean"],
+            history_row["val_sf_confidence_mean"], history_row["val_vd_confidence_mean"],
         )
 
         if cfg.save_epoch_pngs:
@@ -314,13 +356,14 @@ def main(cfg: Config):
                 best_val_loss,
                 history_row,
                 run_signature,
+                scheduler=scheduler,
             )
-            print(f"  nuevo best val_loss={best_val_loss:.6f}")
+            logger.info("  nuevo best val_loss=%.6f", best_val_loss)
         else:
             early_stopping_counter += 1
-            print(
-                "  sin mejora en val_loss "
-                f"({early_stopping_counter}/{cfg.early_stopping_patience})"
+            logger.info(
+                "  sin mejora en val_loss (%d/%d)",
+                early_stopping_counter, cfg.early_stopping_patience,
             )
 
         save_training_checkpoint(
@@ -332,24 +375,30 @@ def main(cfg: Config):
             best_val_loss,
             history_row,
             run_signature,
+            scheduler=scheduler,
         )
 
+        # Avanza el scheduler DESPUES de guardar los checkpoints de esta epoca, para
+        # que optimizer_state_dict (LR usado en esta epoca) y scheduler_state_dict
+        # (punto del ciclo que produjo ese LR) queden guardados en sincronia (M1).
+        if scheduler is not None:
+            scheduler.step()
+
         if datetime.now() >= pause_datetime:
-            print(
-                f"\n[AUTO-PAUSE] Se alcanzo la hora de pausa ({cfg.pause_hour}:00). "
-                f"Checkpoint guardado en {latest_ckpt_path.resolve()}"
+            logger.info(
+                "[AUTO-PAUSE] Se alcanzo la hora de pausa (%d:00). Checkpoint guardado en %s",
+                cfg.pause_hour, latest_ckpt_path.resolve(),
             )
-            print("Ejecuta el mismo comando de nuevo y continuara desde la siguiente epoch.")
+            logger.info("Ejecuta el mismo comando de nuevo y continuara desde la siguiente epoch.")
             return
 
         if early_stopping_counter >= cfg.early_stopping_patience:
-            print(
-                "\n[EARLY STOPPING] "
-                f"Detenido en epoch {epoch} tras "
-                f"{cfg.early_stopping_patience} epochs sin mejorar val_loss en al menos "
-                f"{cfg.early_stopping_min_delta}."
+            logger.info(
+                "[EARLY STOPPING] Detenido en epoch %d tras %d epochs sin mejorar "
+                "val_loss en al menos %s.",
+                epoch, cfg.early_stopping_patience, cfg.early_stopping_min_delta,
             )
-            print(f"Best val_loss={best_val_loss:.6f}")
+            logger.info("Best val_loss=%.6f", best_val_loss)
             return
 
-    print(f"\n[TRAIN COMPLETE] Entrenamiento finalizado. best_val_loss={best_val_loss:.6f}")
+    logger.info("[TRAIN COMPLETE] Entrenamiento finalizado. best_val_loss=%.6f", best_val_loss)

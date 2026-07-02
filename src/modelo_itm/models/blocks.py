@@ -27,16 +27,21 @@ class FiLMSpectralBlock(nn.Module):
         self.beta = nn.Linear(cond_dim, c)
 
     def forward(self, x, cond_emb):
-        x_ft = torch.fft.rfft2(x, norm="ortho")
-        out_ft = torch.zeros_like(x_ft)
-        mh = min(self.modes, x_ft.size(-2))
-        mw = min(self.modes, x_ft.size(-1))
-        out_ft[:, :, :mh, :mw] = torch.einsum(
-            "bixy,ioxy->boxy",
-            x_ft[:, :, :mh, :mw],
-            self.weight[:, :, :mh, :mw],
-        )
-        spec_x = torch.fft.irfft2(out_ft, s=x.shape[-2:], norm="ortho")
+        # FFT/multiplicacion espectral forzadas a float32 incluso bajo AMP (M2):
+        # rfft2/irfft2 no tienen buen soporte/precision en float16.
+        with torch.autocast(device_type=x.device.type, enabled=False):
+            x_fp32 = x.float()
+            x_ft = torch.fft.rfft2(x_fp32, norm="ortho")
+            out_ft = torch.zeros_like(x_ft)
+            mh = min(self.modes, x_ft.size(-2))
+            mw = min(self.modes, x_ft.size(-1))
+            out_ft[:, :, :mh, :mw] = torch.einsum(
+                "bixy,ioxy->boxy",
+                x_ft[:, :, :mh, :mw],
+                self.weight[:, :, :mh, :mw],
+            )
+            spec_x = torch.fft.irfft2(out_ft, s=x.shape[-2:], norm="ortho")
+        spec_x = spec_x.to(x.dtype)
 
         y = F.gelu(spec_x + self.local(x))
         g = self.gamma(cond_emb).view(-1, y.size(1), 1, 1)

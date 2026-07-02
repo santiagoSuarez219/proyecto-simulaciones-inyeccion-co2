@@ -6,6 +6,7 @@ from modelo_itm.utils.device import (
     seed_everything,
 )
 from modelo_itm.utils.io import ensure_dir, load_json, save_json
+from modelo_itm.utils.logging import configure_logging, get_logger
 from modelo_itm.utils.time import get_next_pause_datetime
 
 __all__ = [
@@ -18,4 +19,6 @@ __all__ = [
     "save_json",
     "load_json",
     "get_next_pause_datetime",
+    "configure_logging",
+    "get_logger",
 ]

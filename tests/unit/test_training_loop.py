@@ -1,3 +1,4 @@
+import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -7,7 +8,7 @@ from modelo_itm.training.loop import run_one_epoch
 
 
 def _build_dummy_loader(n_samples=6, time_steps=4, h=8, w=8, batch_size=2):
-    x = torch.randn(n_samples, 5, h, w)
+    x = torch.randn(n_samples, 4, h, w)
     d = torch.randn(n_samples, 1)
     inj = torch.randn(n_samples, time_steps, 2)
     y = torch.randn(n_samples, time_steps, 2, h, w)
@@ -65,3 +66,52 @@ def test_run_one_epoch_regression_metrics_match_manual_accumulation():
     assert result["vd_r2"] == expected["vd_r2"]
     assert result["sf_rmse"] == expected["sf_rmse"]
     assert result["vd_rmse"] == expected["vd_rmse"]
+
+
+def test_run_one_epoch_aborts_on_nan_loss():
+    """M6: una loss no finita (ground truth con NaN) debe abortar el
+    entrenamiento con un error claro, no propagarse silenciosamente."""
+    time_steps = 4
+    cfg = Config(time_steps=time_steps, hidden_dim=16, spectral_modes=4, batch_size=2)
+    model = PhysicalFNOArchitecture(time_steps=time_steps, h_dim=16, modes=4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+
+    n_samples, h, w = 2, 8, 8
+    x = torch.randn(n_samples, 4, h, w)
+    d = torch.randn(n_samples, 1)
+    inj = torch.randn(n_samples, time_steps, 2)
+    y = torch.full((n_samples, time_steps, 2, h, w), float("nan"))
+    loader = DataLoader(TensorDataset(x, d, inj, y), batch_size=2)
+
+    with pytest.raises(RuntimeError, match="NaN/Inf"):
+        run_one_epoch(model, loader, optimizer, cfg, torch.device("cpu"), train=True)
+
+
+def test_run_one_epoch_aborts_on_inf_loss():
+    time_steps = 4
+    cfg = Config(time_steps=time_steps, hidden_dim=16, spectral_modes=4, batch_size=2)
+    model = PhysicalFNOArchitecture(time_steps=time_steps, h_dim=16, modes=4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+
+    n_samples, h, w = 2, 8, 8
+    x = torch.randn(n_samples, 4, h, w)
+    d = torch.randn(n_samples, 1)
+    inj = torch.randn(n_samples, time_steps, 2)
+    y = torch.full((n_samples, time_steps, 2, h, w), float("inf"))
+    loader = DataLoader(TensorDataset(x, d, inj, y), batch_size=2)
+
+    with pytest.raises(RuntimeError, match="NaN/Inf"):
+        run_one_epoch(model, loader, optimizer, cfg, torch.device("cpu"), train=True)
+
+
+def test_run_one_epoch_does_not_raise_on_finite_data():
+    """Red de seguridad: confirma que el guard no genera falsos positivos con
+    datos normales (ya cubierto por otros tests, pero explicito aqui)."""
+    time_steps = 4
+    cfg = Config(time_steps=time_steps, hidden_dim=16, spectral_modes=4, batch_size=2)
+    model = PhysicalFNOArchitecture(time_steps=time_steps, h_dim=16, modes=4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+    loader = _build_dummy_loader(time_steps=time_steps, batch_size=2)
+
+    result = run_one_epoch(model, loader, optimizer, cfg, torch.device("cpu"), train=True)
+    assert torch.isfinite(torch.tensor(result["loss"]))

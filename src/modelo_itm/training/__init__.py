@@ -17,6 +17,7 @@ from modelo_itm.training.metrics import (
     update_global_regression_accumulators,
     update_running_stats,
 )
+from modelo_itm.training.optim import build_param_groups, build_scheduler
 
 __all__ = [
     "spatial_gradient_loss",
@@ -31,6 +32,8 @@ __all__ = [
     "update_global_regression_accumulators",
     "finalize_global_regression_metrics",
     "count_parameters",
+    "build_param_groups",
+    "build_scheduler",
     "build_run_signature",
     "check_resume_compatibility",
     "save_training_checkpoint",
