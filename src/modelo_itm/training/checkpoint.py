@@ -18,6 +18,7 @@ def build_run_signature(cfg: Config, train_path: Path, val_path: Path):
         "time_steps": int(cfg.time_steps),
         "hidden_dim": int(cfg.hidden_dim),
         "spectral_modes": int(cfg.spectral_modes),
+        "dropout_p": float(cfg.dropout_p),
         "lr": float(cfg.lr),
         "weight_decay": float(cfg.weight_decay),
         "batch_size": int(cfg.batch_size),

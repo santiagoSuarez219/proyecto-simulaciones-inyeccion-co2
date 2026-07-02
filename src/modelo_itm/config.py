@@ -26,6 +26,7 @@ class Config:
     time_steps: int = 61
     hidden_dim: int = 128
     spectral_modes: int = 16
+    dropout_p: float = 0.1
 
     auto_resume: bool = True
     pause_hour: int = 7

@@ -4,11 +4,12 @@ import torch.nn.functional as F
 
 
 class ResBlock(nn.Module):
-    def __init__(self, c):
+    def __init__(self, c, dropout_p=0.0):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(c, c, 3, 1, 1, padding_mode="replicate"),
             nn.GELU(),
+            nn.Dropout2d(dropout_p),
             nn.Conv2d(c, c, 3, 1, 1, padding_mode="replicate"),
         )
 

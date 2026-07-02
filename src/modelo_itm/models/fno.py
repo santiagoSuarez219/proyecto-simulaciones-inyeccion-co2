@@ -5,13 +5,13 @@ from modelo_itm.models.blocks import FiLMSpectralBlock, ResBlock
 
 
 class PhysicalFNOArchitecture(nn.Module):
-    def __init__(self, time_steps=61, in_c=5, h_dim=128, modes=16, cond_dim=128):
+    def __init__(self, time_steps=61, in_c=5, h_dim=128, modes=16, cond_dim=128, dropout_p=0.1):
         super().__init__()
         self.time_steps = int(time_steps)
         self.encoder = nn.Sequential(
             nn.Conv2d(in_c + 1, h_dim, 3, 1, 1, padding_mode="replicate"),
             nn.GELU(),
-            ResBlock(h_dim),
+            ResBlock(h_dim, dropout_p=dropout_p),
         )
         self.t_embed = nn.Embedding(self.time_steps, cond_dim)
         self.cond_mlp = nn.Sequential(
@@ -21,7 +21,7 @@ class PhysicalFNOArchitecture(nn.Module):
         )
         self.fno_blocks = nn.ModuleList([FiLMSpectralBlock(h_dim, modes, cond_dim=cond_dim) for _ in range(4)])
         self.decoder = nn.Sequential(
-            ResBlock(h_dim),
+            ResBlock(h_dim, dropout_p=dropout_p),
             nn.Conv2d(h_dim, h_dim // 2, 3, 1, 1, padding_mode="replicate"),
             nn.GELU(),
             nn.Conv2d(h_dim // 2, 2, 1),

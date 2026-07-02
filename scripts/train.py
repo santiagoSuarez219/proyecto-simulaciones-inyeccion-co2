@@ -31,6 +31,7 @@ def build_parser():
     p.add_argument("--early-stopping-patience", type=int, default=None, help="Paciencia para early stopping")
     p.add_argument("--early-stopping-min-delta", type=float, default=None, help="Delta mínimo para early stopping")
     p.add_argument("--uncertainty-passes", type=int, default=None, help="Pasadas de MC Dropout para incertidumbre")
+    p.add_argument("--dropout-p", type=float, default=None, help="Probabilidad de Dropout2d en ResBlock (MC Dropout)")
     p.add_argument("--save-epoch-pngs", type=str_to_bool, default=None, help="Guardar visualizaciones por época")
     return p
 

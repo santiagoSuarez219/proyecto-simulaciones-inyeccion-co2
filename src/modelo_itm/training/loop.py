@@ -178,6 +178,7 @@ def main(cfg: Config):
         h_dim=cfg.hidden_dim,
         modes=cfg.spectral_modes,
         cond_dim=128,
+        dropout_p=cfg.dropout_p,
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
