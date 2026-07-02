@@ -398,9 +398,10 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     discovered = discover_simulation_inputs(sim_dir)
                     print(f"[SIM] {sim_name}: input={sim_dir} -> output={sim_processed_dir}")
+                    # Test simulations ARE normalized too, using the same train-only
+                    # global stats (never computed from test — no leakage). This keeps
+                    # train/val on the same scale so val metrics are comparable.
                     normalize_this_sim = bool(args.normalize)
-                    if use_split_routing and split == "test":
-                        normalize_this_sim = False
 
                     global_stats = None
                     if normalize_this_sim and args.normalization_scope == "split" and use_split_routing:

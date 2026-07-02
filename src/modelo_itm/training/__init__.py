@@ -9,9 +9,12 @@ from modelo_itm.training.metrics import (
     compute_all_metrics,
     compute_rmse,
     count_parameters,
+    finalize_global_regression_metrics,
     finalize_running_stats,
+    init_global_regression_accumulators,
     init_running_stats,
     torch_r2_score,
+    update_global_regression_accumulators,
     update_running_stats,
 )
 
@@ -24,6 +27,9 @@ __all__ = [
     "init_running_stats",
     "update_running_stats",
     "finalize_running_stats",
+    "init_global_regression_accumulators",
+    "update_global_regression_accumulators",
+    "finalize_global_regression_metrics",
     "count_parameters",
     "build_run_signature",
     "check_resume_compatibility",

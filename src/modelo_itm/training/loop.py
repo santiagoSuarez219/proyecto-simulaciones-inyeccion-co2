@@ -1,4 +1,5 @@
-import json
+from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 
 import torch
@@ -21,14 +22,16 @@ from modelo_itm.training.checkpoint import (
 )
 from modelo_itm.training.metrics import (
     compute_all_metrics,
-    compute_rmse,
+    count_parameters,
+    finalize_global_regression_metrics,
     finalize_running_stats,
+    init_global_regression_accumulators,
     init_running_stats,
-    torch_r2_score,
+    update_global_regression_accumulators,
     update_running_stats,
 )
 from modelo_itm.training.losses import compute_loss_terms
-from modelo_itm.utils import resolve_device, seed_everything
+from modelo_itm.utils import describe_device, resolve_device, seed_everything
 from modelo_itm.utils.io import ensure_dir, load_json, save_json
 from modelo_itm.utils.time import get_next_pause_datetime
 from modelo_itm.visualization import save_epoch_visuals, save_history_plots
@@ -93,23 +96,23 @@ def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, t
 
 
 def evaluate_epoch(model, loader, cfg: Config, device: torch.device, calibration: dict):
+    """sf_r2/vd_r2/sf_rmse/vd_rmse se calculan una sola vez al final sobre el dataset
+    completo (acumulación global de SS_res/SS_tot y suma de errores cuadrados). El resto
+    de las métricas (loss, incertidumbre) sí son promediables por batch."""
     model.eval()
-    running = {
-        "loss": 0.0,
-        "sf_loss": 0.0,
-        "vd_loss": 0.0,
-        "sf_r2": 0.0,
-        "vd_r2": 0.0,
-        "sf_rmse": 0.0,
-        "vd_rmse": 0.0,
-        "sf_uncertainty_mean": 0.0,
-        "vd_uncertainty_mean": 0.0,
-        "sf_confidence_mean": 0.0,
-        "vd_confidence_mean": 0.0,
-        "sf_uncertainty_p95": 0.0,
-        "vd_uncertainty_p95": 0.0,
-    }
-    running_stats = init_running_stats(running.keys())
+    running_keys = (
+        "loss",
+        "sf_loss",
+        "vd_loss",
+        "sf_uncertainty_mean",
+        "vd_uncertainty_mean",
+        "sf_confidence_mean",
+        "vd_confidence_mean",
+        "sf_uncertainty_p95",
+        "vd_uncertainty_p95",
+    )
+    running_stats = init_running_stats(running_keys)
+    regression_accumulators = init_global_regression_accumulators(("sf", "vd"))
     num_batches = 0
 
     pbar = tqdm(loader, desc="eval", leave=False)
@@ -124,24 +127,28 @@ def evaluate_epoch(model, loader, cfg: Config, device: torch.device, calibration
             loss, metrics = compute_all_metrics(pred, y, cfg)
             metrics.update(summarize_uncertainty(pred_std, calibration))
 
+            update_global_regression_accumulators(regression_accumulators, "sf", pred[:, :, 0], y[:, :, 0])
+            update_global_regression_accumulators(regression_accumulators, "vd", pred[:, :, 1], y[:, :, 1])
+
             num_batches += 1
             update_running_stats(running_stats, metrics)
-            for key in running:
-                running[key] += metrics[key]
 
+            partial_regression = finalize_global_regression_metrics(regression_accumulators)
             pbar.set_postfix(
-                loss=f"{running['loss'] / num_batches:.4f}",
-                sf_loss=f"{running['sf_loss'] / num_batches:.4f}",
-                vd_loss=f"{running['vd_loss'] / num_batches:.4f}",
-                sf_rmse=f"{running['sf_rmse'] / num_batches:.4f}",
-                vd_rmse=f"{running['vd_rmse'] / num_batches:.4f}",
-                sf_r2=f"{running['sf_r2'] / num_batches:.4f}",
-                vd_r2=f"{running['vd_r2'] / num_batches:.4f}",
-                sf_unc=f"{running['sf_uncertainty_mean'] / num_batches:.4f}",
-                vd_unc=f"{running['vd_uncertainty_mean'] / num_batches:.4f}",
+                loss=f"{running_stats['loss']['mean']:.4f}",
+                sf_loss=f"{running_stats['sf_loss']['mean']:.4f}",
+                vd_loss=f"{running_stats['vd_loss']['mean']:.4f}",
+                sf_rmse=f"{partial_regression['sf_rmse']:.4f}",
+                vd_rmse=f"{partial_regression['vd_rmse']:.4f}",
+                sf_r2=f"{partial_regression['sf_r2']:.4f}",
+                vd_r2=f"{partial_regression['vd_r2']:.4f}",
+                sf_unc=f"{running_stats['sf_uncertainty_mean']['mean']:.4f}",
+                vd_unc=f"{running_stats['vd_uncertainty_mean']['mean']:.4f}",
             )
 
-    return finalize_running_stats(running_stats)
+    result = finalize_running_stats(running_stats)
+    result.update(finalize_global_regression_metrics(regression_accumulators))
+    return result
 
 
 def main(cfg: Config):
@@ -171,24 +178,68 @@ def main(cfg: Config):
     ensure_dir(ckpt_dir)
 
     run_signature = build_run_signature(cfg, train_path, val_path)
-    save_json(out_dir / "config.json", {k: str(v) for k, v in run_signature.items()})
+    save_json(
+        out_dir / "config.json",
+        {
+            **{k: str(v) for k, v in asdict(cfg).items()},
+            "train_dir": str(train_path),
+            "val_dir": str(val_path),
+            "checkpoint_dir": str(ckpt_dir),
+            "resolved_device": describe_device(device),
+            "resolved_num_workers": train_num_workers,
+            "run_signature": {k: str(v) for k, v in run_signature.items()},
+        },
+    )
+    print(f"[MODEL] Parametros entrenables: {count_parameters(model):,}")
 
-    history = load_json(out_dir / "metrics_history.json", default=[])
+    history_path = out_dir / "metrics_history.json"
     calibration_path = out_dir / "uncertainty_calibration.json"
     best_ckpt_path = ckpt_dir / "best.pt"
     latest_ckpt_path = ckpt_dir / "latest.pt"
 
     start_epoch = 1
     best_val_loss = float("inf")
+    history = []
+    resumed_from = None
 
     if cfg.auto_resume:
-        start_epoch, best_val_loss, _, resumed, reasons, _ = try_resume_training(
-            latest_ckpt_path, model, optimizer, device, run_signature
-        )
-        if resumed:
-            print(f"[RESUME] Continuando desde epoch {start_epoch}, best_val_loss={best_val_loss:.6f}")
-        else:
-            print(f"[RESUME FAILED] {' | '.join(reasons)}")
+        resume_candidates = [latest_ckpt_path]
+        if best_ckpt_path != latest_ckpt_path and best_ckpt_path.exists():
+            resume_candidates.append(best_ckpt_path)
+
+        for candidate in resume_candidates:
+            if not candidate.exists():
+                continue
+
+            start_epoch, best_val_loss, last_metrics, resumed, reasons, resume_path = try_resume_training(
+                candidate, model, optimizer, device, run_signature
+            )
+            if resumed:
+                resumed_from = resume_path
+                history = load_json(history_path, default=[])
+                print(
+                    f"[RESUME] Cargado {resume_path.name}. "
+                    f"Continuando desde epoch {start_epoch} (ultima completa: {start_epoch - 1})"
+                )
+                if last_metrics is not None:
+                    print(
+                        f"[RESUME] Ultimo val_loss={last_metrics.get('val_loss', 'n/a')} | "
+                        f"best val_loss={best_val_loss:.6f}"
+                    )
+                break
+
+            print(f"[RESUME SKIP] {candidate.name} no se pudo reanudar:")
+            for reason in reasons:
+                print(f"  - {reason}")
+
+        if resumed_from is None:
+            print("[START] Iniciando una corrida nueva para la configuracion actual")
+    else:
+        print("[START] Entrenando desde cero")
+
+    if start_epoch > cfg.epochs:
+        print(f"El entrenamiento ya alcanzo la epoch {cfg.epochs}.")
+        return
 
     calibration = load_or_create_uncertainty_calibration(calibration_path, model, val_loader, cfg, device)
 
@@ -198,41 +249,41 @@ def main(cfg: Config):
 
     for epoch in range(start_epoch, cfg.epochs + 1):
         train_metrics = run_one_epoch(model, train_loader, optimizer, cfg, device, train=True)
+
+        calibration = calibrate_uncertainty(model, val_loader, cfg, device)
+        save_json(calibration_path, calibration)
+
+        train_eval_metrics = evaluate_epoch(model, train_loader, cfg, device, calibration)
         val_metrics = evaluate_epoch(model, val_loader, cfg, device, calibration)
 
         history_row = {
             "epoch": epoch,
-            "train_loss": train_metrics.get("loss", 0.0),
-            "train_sf_loss": train_metrics.get("sf_loss", 0.0),
-            "train_vd_loss": train_metrics.get("vd_loss", 0.0),
-            "val_loss": val_metrics.get("loss", 0.0),
-            "val_sf_loss": val_metrics.get("sf_loss", 0.0),
-            "val_vd_loss": val_metrics.get("vd_loss", 0.0),
-            "train_sf_r2": val_metrics.get("sf_r2", 0.0),
-            "train_vd_r2": val_metrics.get("vd_r2", 0.0),
-            "val_sf_r2": val_metrics.get("sf_r2", 0.0),
-            "val_vd_r2": val_metrics.get("vd_r2", 0.0),
-            "train_sf_rmse": train_metrics.get("sf_loss", 0.0),
-            "train_vd_rmse": train_metrics.get("vd_loss", 0.0),
-            "val_sf_rmse": val_metrics.get("sf_rmse", 0.0),
-            "val_vd_rmse": val_metrics.get("vd_rmse", 0.0),
+            "lr": float(optimizer.param_groups[0]["lr"]),
+            **{f"train_{k}": v for k, v in train_eval_metrics.items()},
+            **{f"val_{k}": v for k, v in val_metrics.items()},
         }
-        history_row.update({k: v for k, v in val_metrics.items() if k.startswith(("sf_", "vd_", "val_"))})
         history.append(history_row)
-        save_json(out_dir / "metrics_history.json", history)
+        save_json(history_path, history)
+        save_history_plots(history, out_dir)
 
-        save_training_checkpoint(
-            latest_ckpt_path,
-            model,
-            optimizer,
-            cfg,
-            epoch,
-            best_val_loss,
-            history_row,
-            run_signature,
+        print(
+            f"E{epoch:03d} | "
+            f"train_loss={train_metrics['loss']:.5f} | "
+            f"val_loss={history_row['val_loss']:.5f} | "
+            f"val_sf_rmse={history_row['val_sf_rmse']:.5f} | "
+            f"val_vd_rmse={history_row['val_vd_rmse']:.5f} | "
+            f"val_sf_r2={history_row['val_sf_r2']:.4f} | "
+            f"val_vd_r2={history_row['val_vd_r2']:.4f} | "
+            f"val_sf_unc={history_row['val_sf_uncertainty_mean']:.4f} | "
+            f"val_vd_unc={history_row['val_vd_uncertainty_mean']:.4f} | "
+            f"val_sf_conf={history_row['val_sf_confidence_mean']:.4f} | "
+            f"val_vd_conf={history_row['val_vd_confidence_mean']:.4f}"
         )
 
-        val_loss = val_metrics.get("loss", float("inf"))
+        if cfg.save_epoch_pngs:
+            save_epoch_visuals(model, val_ds, epoch, out_dir, device, cfg, calibration)
+
+        val_loss = history_row["val_loss"]
         if val_loss < best_val_loss - cfg.early_stopping_min_delta:
             best_val_loss = val_loss
             early_stopping_counter = 0
@@ -246,18 +297,41 @@ def main(cfg: Config):
                 history_row,
                 run_signature,
             )
-            print(f"[EPOCH {epoch:04d}] New best val_loss={best_val_loss:.6f}")
+            print(f"  nuevo best val_loss={best_val_loss:.6f}")
         else:
             early_stopping_counter += 1
-            if early_stopping_counter >= cfg.early_stopping_patience:
-                print(f"[EARLY STOP] No improvement for {cfg.early_stopping_patience} epochs. Deteniendo entrenamiento.")
-                break
+            print(
+                "  sin mejora en val_loss "
+                f"({early_stopping_counter}/{cfg.early_stopping_patience})"
+            )
 
-        if cfg.save_epoch_pngs:
-            save_epoch_visuals(model, val_ds, epoch, out_dir, device, cfg, calibration)
+        save_training_checkpoint(
+            latest_ckpt_path,
+            model,
+            optimizer,
+            cfg,
+            epoch,
+            best_val_loss,
+            history_row,
+            run_signature,
+        )
 
-        if len(history) % 5 == 0:
-            save_history_plots(history, out_dir)
+        if datetime.now() >= pause_datetime:
+            print(
+                f"\n[AUTO-PAUSE] Se alcanzo la hora de pausa ({cfg.pause_hour}:00). "
+                f"Checkpoint guardado en {latest_ckpt_path.resolve()}"
+            )
+            print("Ejecuta el mismo comando de nuevo y continuara desde la siguiente epoch.")
+            return
 
-    save_history_plots(history, out_dir)
-    print(f"[TRAIN COMPLETE] Entrenamiento finalizado. best_val_loss={best_val_loss:.6f}")
+        if early_stopping_counter >= cfg.early_stopping_patience:
+            print(
+                "\n[EARLY STOPPING] "
+                f"Detenido en epoch {epoch} tras "
+                f"{cfg.early_stopping_patience} epochs sin mejorar val_loss en al menos "
+                f"{cfg.early_stopping_min_delta}."
+            )
+            print(f"Best val_loss={best_val_loss:.6f}")
+            return
+
+    print(f"\n[TRAIN COMPLETE] Entrenamiento finalizado. best_val_loss={best_val_loss:.6f}")

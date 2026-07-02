@@ -18,18 +18,50 @@ def compute_rmse(pred, gt):
 
 
 def compute_all_metrics(pred, gt, cfg: Config):
+    """Loss por batch (promediable). R2/RMSE de SF y VD se acumulan globalmente
+    con init/update/finalize_global_regression_metrics — no aditivos por batch."""
     total_loss, l_sf, l_vd = compute_loss_terms(pred, gt, cfg)
     with torch.no_grad():
         metrics = {
             "loss": float(total_loss.item()),
             "sf_loss": float(l_sf.item()),
             "vd_loss": float(l_vd.item()),
-            "sf_r2": float(torch_r2_score(pred[:, :, 0], gt[:, :, 0]).item()),
-            "vd_r2": float(torch_r2_score(pred[:, :, 1], gt[:, :, 1]).item()),
-            "sf_rmse": float(compute_rmse(pred[:, :, 0], gt[:, :, 0]).item()),
-            "vd_rmse": float(compute_rmse(pred[:, :, 1], gt[:, :, 1]).item()),
         }
     return total_loss, metrics
+
+
+def init_global_regression_accumulators(keys=("sf", "vd")):
+    return {
+        key: {"sum_sq_error": 0.0, "sum_gt": 0.0, "sum_gt_sq": 0.0, "count": 0}
+        for key in keys
+    }
+
+
+def update_global_regression_accumulators(accumulators, key, pred, gt):
+    with torch.no_grad():
+        acc = accumulators[key]
+        acc["sum_sq_error"] += float(torch.sum((pred - gt) ** 2).item())
+        acc["sum_gt"] += float(torch.sum(gt).item())
+        acc["sum_gt_sq"] += float(torch.sum(gt ** 2).item())
+        acc["count"] += gt.numel()
+
+
+def finalize_global_regression_metrics(accumulators):
+    """R2 = 1 - SS_res/SS_tot y RMSE = sqrt(SS_res/n) calculados sobre el dataset
+    completo (SS_tot = sum(gt^2) - n*mean(gt)^2, acumulable sin una segunda pasada)."""
+    metrics = {}
+    for key, acc in accumulators.items():
+        n = acc["count"]
+        if n == 0:
+            metrics[f"{key}_rmse"] = 0.0
+            metrics[f"{key}_r2"] = 0.0
+            continue
+        sum_sq_error = acc["sum_sq_error"]
+        metrics[f"{key}_rmse"] = float(np.sqrt(sum_sq_error / n + 1e-12))
+        mean_gt = acc["sum_gt"] / n
+        ss_tot = acc["sum_gt_sq"] - n * (mean_gt ** 2)
+        metrics[f"{key}_r2"] = float(1.0 - sum_sq_error / (ss_tot + 1e-8))
+    return metrics
 
 
 def init_running_stats(metric_keys):

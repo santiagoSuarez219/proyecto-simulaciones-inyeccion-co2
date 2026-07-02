@@ -187,11 +187,13 @@ def _transform_worker(
             )
 
         # Import here (inside worker process) to avoid heavyweight imports at spawn
-        from ..pipelines import _run_requested_pipelines  # noqa: PLC0415
+        from .serial import _run_requested_pipelines  # noqa: PLC0415
 
         torch_output = fmt == "pt"
-        # Test simulations are never normalized (stats are train-only)
-        normalize_this = normalize and split != "test"
+        # Test simulations ARE normalized too, using the same train-only global_stats
+        # (computed exclusively from train_dirs in Phase 1 — no leakage). This keeps
+        # train/val on the same scale so val_loss/val_r2/val_rmse are comparable.
+        normalize_this = normalize
         global_norm: dict | None = global_stats if (normalize_this and global_stats) else None
 
         reports = _run_requested_pipelines(
