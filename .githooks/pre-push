@@ -6,9 +6,11 @@
 # usar el script (p. ej. un `git push origin development:main` accidental).
 #
 # Instalacion (una vez por clon):
-#   git config core.hooksPath .githooks
+#   scripts/install-git-hooks.sh
+# (copia este archivo a .git/hooks/pre-push, la ubicacion que git respeta
+#  siempre; un core.hooksPath relativo NO se honra de forma fiable en push.)
 # Para desactivar temporalmente:
-#   git config --unset core.hooksPath
+#   rm .git/hooks/pre-push
 # ==========================================================================
 set -euo pipefail
 

@@ -44,14 +44,17 @@ mano (no promueve a ciegas).
 ## Guardarraíl local (hook `pre-push`)
 
 Si algún día olvidas el script e intentas `git push ... main` con esas rutas, el hook
-`pre-push` **rechaza** el push. Se activa una vez por clon:
+`pre-push` **rechaza** el push. Se instala una vez por clon:
 
 ```bash
-git config core.hooksPath .githooks
+scripts/install-git-hooks.sh
 ```
 
-Para desactivarlo temporalmente: `git config --unset core.hooksPath`.
+Esto copia `.githooks/pre-push` a `.git/hooks/pre-push`. Se usa la ubicación por defecto
+`.git/hooks/` y **no** `git config core.hooksPath .githooks`, porque un `core.hooksPath`
+relativo **no se honra de forma fiable durante `git push`** (verificado: git no invoca el
+hook). Para desactivarlo temporalmente: `rm .git/hooks/pre-push`.
 
-> **Nota:** el hook es **local** (no viaja en el push). Cada clon del repo debe activarlo con
+> **Nota:** el hook es **local** (no viaja en el push). Cada clon del repo debe instalarlo con
 > el comando de arriba. Para una barrera que no dependa de cada máquina, considera además una
 > verificación en CI (GitHub Actions) que falle si `main` contiene esas rutas.

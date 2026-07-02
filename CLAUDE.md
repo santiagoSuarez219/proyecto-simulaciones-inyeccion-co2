@@ -539,8 +539,9 @@ scripts/promote-to-main.sh --push     # además sube a origin/main
 ```
 
 Nunca hacer `git merge development` ni `git push ... main` a mano. El hook `pre-push`
-(`.githooks/pre-push`, activar con `git config core.hooksPath .githooks`) bloquea localmente
-cualquier push a `main` con esas rutas. Detalle completo en `docs/mantener-main-limpio.md`.
+(`.githooks/pre-push`, instalar con `scripts/install-git-hooks.sh` una vez por clon) bloquea
+localmente cualquier push a `main` con esas rutas. Detalle completo en
+`docs/mantener-main-limpio.md`.
 
 ### Commits
 
