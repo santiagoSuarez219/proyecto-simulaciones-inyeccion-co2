@@ -1,0 +1,42 @@
+# Config de referencia — refleja los campos del dataclass Config en train_dataset.py.
+# Aun no esta conectada a ningun loader; documenta el esquema hasta que se implemente
+# la carga de configs por YAML (ver specs/).
+
+data_root: "."
+train_dir: "train"
+val_dir: "test"
+output_dir: "./output"
+checkpoint_dir: null
+overfit_sample_idx: null
+device: "cuda"
+seed: 42
+
+batch_size: 4
+epochs: 100
+lr: 8.0e-4
+weight_decay: 1.0e-4
+num_workers: null
+prefetch_factor: 2
+persistent_workers: true
+progress_interval: 10
+grad_clip: 1.0
+
+time_steps: 61
+hidden_dim: 128
+spectral_modes: 16
+
+auto_resume: true
+pause_hour: 7
+early_stopping_patience: 5
+early_stopping_min_delta: 1.0e-4
+
+sf_weight: 2.5
+vd_weight: 1.0
+grad_weight: 0.8
+seg_t0_weight: 3.0
+seg_t1_20_weight: 2.0
+seg_t21_60_weight: 1.0
+
+save_epoch_pngs: false
+epoch_png_examples: 1
+uncertainty_passes: 30
