@@ -1,0 +1,9 @@
+# Se montan como volumen en runtime (docker/run.sh) — excluir del build context
+# para que `docker build` sea rapido incluso con datasets grandes.
+data/
+outputs/
+.venv/
+.git/
+__pycache__/
+*.pyc
+notebooks/.ipynb_checkpoints/
