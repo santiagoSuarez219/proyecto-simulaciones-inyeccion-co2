@@ -1,21 +1,16 @@
 # Entorno de entrenamiento para fno_co2 (spec-001: framework de experimentacion)
 #
-# IMPORTANTE: fijar el digest exacto de la imagen base tras verificar `nvidia-smi`
-# en la workstation (CUDA Version del driver debe ser >= la de esta imagen).
-# Ejemplo de como obtener el digest:
-#   docker pull pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
-#   docker inspect --format='{{index .RepoDigests 0}}' pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
-FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
+# Parte de la imagen base compartida de la workstation (spec-001 de
+# 09-Proyecto-Deep-Learning/specs/, Fase 4: ~/proyectos/_docker-base/base-cuda/), en vez
+# de una imagen de PyTorch directa -- evita reconstruir CUDA/cuDNN/Python en cada
+# proyecto de la workstation. torch se instala igual que antes, vía
+# `pip install -e ".[dev]"` (ya declarado en pyproject.toml), asi que no requiere
+# ningun cambio de dependencias.
+FROM base-cuda:py312
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
-
-# Herramientas de sistema (git para las ramas exp/<variante> de la Fase 3;
-# tmux para sobrevivir desconexiones SSH durante corridas multi-seed de la Fase 4)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        git wget curl vim htop tmux \
-    && rm -rf /var/lib/apt/lists/*
 
 # Usuario no-root con UID/GID del host: evita que outputs/, data/processed/ y
 # docs/experiments.md queden con dueño root en el host al montarse como volumen.
