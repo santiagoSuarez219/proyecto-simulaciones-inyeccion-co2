@@ -20,6 +20,16 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="fno-co2:dev"
 
+# data/ suele ser un symlink a un disco externo (p. ej. /media/.../data). El montaje
+# del repo no expone el destino del symlink, asi que dentro del contenedor quedaria
+# colgando y el entrenamiento abortaria con FileNotFoundError. Si data/ es un symlink,
+# se monta su destino real en la MISMA ruta absoluta para que el symlink resuelva.
+DATA_MOUNT=()
+if [ -L "$REPO_ROOT/data" ]; then
+    DATA_TARGET="$(readlink -f "$REPO_ROOT/data")"
+    DATA_MOUNT=(-v "$DATA_TARGET:$DATA_TARGET")
+fi
+
 build() {
     docker build \
         --build-arg UID="$(id -u)" \
@@ -34,10 +44,11 @@ build() {
 # igual sin volumen adicional. Mismo criterio para outputs/<experiment_name>/seed_<seed>/
 # de la Fase 1 y docs/experiments.md de la Fase 5.
 COMMON_ARGS=(
-    --gpus "device=${2:-all}"
+    --gpus "device=${3:-all}"
     --ipc=host
     --shm-size=16g
     -v "$REPO_ROOT:/workspace/fno_co2"
+    "${DATA_MOUNT[@]}"
     -w /workspace/fno_co2
 )
 
