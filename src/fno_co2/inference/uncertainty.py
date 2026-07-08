@@ -14,6 +14,21 @@ def model_has_dropout(model) -> bool:
     return any(isinstance(module, (nn.Dropout, nn.Dropout2d, nn.Dropout3d)) for module in model.modules())
 
 
+def _quantile_capped(values: torch.Tensor, q: float, max_elems: int = 2**24 - 1) -> float:
+    """torch.quantile falla con "input tensor is too large" si el tensor tiene mas de
+    ~2^24 elementos. En calibracion el error se acumula sobre TODO el val set (cientos de
+    millones de valores), asi que para tensores grandes se estima el cuantil sobre una
+    submuestra aleatoria deterministica (con reemplazo, memoria acotada) — precision de
+    sobra para un q95. Tensores pequenos usan torch.quantile directo."""
+    flat = values.reshape(-1)
+    n = flat.numel()
+    if n > max_elems:
+        g = torch.Generator(device=flat.device).manual_seed(0)
+        idx = torch.randint(0, n, (max_elems,), generator=g, device=flat.device)
+        flat = flat[idx]
+    return float(torch.quantile(flat, q).item())
+
+
 def default_uncertainty_calibration():
     return {
         "sf": {
@@ -118,8 +133,8 @@ def calibrate_uncertainty(model, val_loader, cfg: Config, device: torch.device):
 
     sf_alpha = 0.0 if sf_std_mean <= EPS else float(sf_abs_error_mean / (sf_std_mean + EPS))
     vd_alpha = 0.0 if vd_std_mean <= EPS else float(vd_abs_error_mean / (vd_std_mean + EPS))
-    sf_error_q95 = float(torch.quantile(sf_abs_error_tensor, 0.95).item())
-    vd_error_q95 = float(torch.quantile(vd_abs_error_tensor, 0.95).item())
+    sf_error_q95 = _quantile_capped(sf_abs_error_tensor, 0.95)
+    vd_error_q95 = _quantile_capped(vd_abs_error_tensor, 0.95)
 
     return {
         "sf": {
@@ -157,8 +172,8 @@ def summarize_uncertainty(pred_std, calibration):
         "vd_uncertainty_mean": float(uncertainty_map[:, :, 1].mean().item()),
         "sf_confidence_mean": float(confidence_map[:, :, 0].mean().item()),
         "vd_confidence_mean": float(confidence_map[:, :, 1].mean().item()),
-        "sf_uncertainty_p95": float(torch.quantile(sf_unc_flat, 0.95).item()),
-        "vd_uncertainty_p95": float(torch.quantile(vd_unc_flat, 0.95).item()),
+        "sf_uncertainty_p95": _quantile_capped(sf_unc_flat, 0.95),
+        "vd_uncertainty_p95": _quantile_capped(vd_unc_flat, 0.95),
     }
 
 

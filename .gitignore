@@ -1,14 +1,11 @@
 .venv/
 /.claude
-CLAUDE.md
 skills-lock.json
-docs/
 __pycache__/
 *.pyc
 *.egg-info/
 .pytest_cache/
 .ipynb_checkpoints/
-specs/
 
 outputs/checkpoints/*
 !outputs/checkpoints/.gitkeep
@@ -16,6 +13,10 @@ outputs/logs/*
 !outputs/logs/.gitkeep
 outputs/figures/*
 !outputs/figures/.gitkeep
+# Artefactos que scripts/train.py escribe en la raíz de outputs/ (config, historial de
+# métricas, curvas, calibración de incertidumbre): generados en runtime, no versionados.
+outputs/*.json
+outputs/*.png
 
 # ETL (fno_co2.etl, ex-cmg2tensor): datos y artefactos generados, no versionados
 data/raw/*

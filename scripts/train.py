@@ -41,6 +41,11 @@ def build_parser():
     p.add_argument("--early-stopping-patience", type=int, default=None, help="Paciencia para early stopping")
     p.add_argument("--early-stopping-min-delta", type=float, default=None, help="Delta mínimo para early stopping")
     p.add_argument("--uncertainty-passes", type=int, default=None, help="Pasadas de MC Dropout para incertidumbre")
+    p.add_argument(
+        "--uncertainty-eval-interval", type=int, default=None,
+        help="Cada cuantas épocas se computa la incertidumbre MC-Dropout completa (cara); "
+             "<=0 => solo en la época final. No afecta val_loss/selección de best.pt",
+    )
     p.add_argument("--dropout-p", type=float, default=None, help="Probabilidad de Dropout2d en ResBlock (MC Dropout)")
     p.add_argument(
         "--use-group-norm", type=str_to_bool, default=None,

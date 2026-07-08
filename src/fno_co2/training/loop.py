@@ -10,7 +10,7 @@ from fno_co2.config import Config
 from fno_co2.data.loaders import build_datasets, build_loader
 from fno_co2.inference.uncertainty import (
     calibrate_uncertainty,
-    load_or_create_uncertainty_calibration,
+    default_uncertainty_calibration,
     model_has_dropout,
     predict_with_uncertainty,
     summarize_uncertainty,
@@ -42,6 +42,15 @@ logger = get_logger(__name__)
 
 _emit_once = EmitOnce()
 
+# Dtype de autocast para AMP (M2). Se usa bfloat16 en vez de float16 porque el modelo
+# tiene parametros espectrales ComplexFloat (FiLMSpectralBlock): con float16 haria falta
+# un GradScaler, cuyo unscale_ NO soporta gradientes complejos
+# ("_amp_foreach_non_finite_check_and_unscale_cuda not implemented for 'ComplexFloat'").
+# bfloat16 tiene el mismo rango dinamico que float32, asi que no requiere loss scaling y
+# evita por completo ese path. La FFT/multiplicacion espectral ya se fuerza a float32
+# dentro de FiLMSpectralBlock (autocast(enabled=False)), independiente de este dtype.
+_AMP_DTYPE = torch.bfloat16
+
 
 def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, train: bool, scaler=None):
     """Acumula tambien sf_r2/vd_r2/sf_rmse/vd_rmse globalmente durante el propio
@@ -50,9 +59,10 @@ def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, t
     evaluate_epoch(train_loader) hacia cada epoca (A3).
 
     Con cfg.use_amp=True (y device.type=="cuda") el forward+loss corren bajo
-    torch.autocast y el backward/step usan un GradScaler (M2) — pasar scaler=None
-    (default) equivale a un GradScaler deshabilitado, sin cambiar el comportamiento
-    previo a M2."""
+    torch.autocast en bfloat16 (_AMP_DTYPE) — sin GradScaler, porque bf16 no necesita
+    loss scaling y el modelo tiene params complejos incompatibles con unscale_ (ver
+    _AMP_DTYPE). El scaler se conserva como no-op transparente (siempre enabled=False)
+    para no alterar el flujo de guardas M6."""
     if scaler is None:
         scaler = torch.amp.GradScaler(device.type if device.type == "cuda" else "cpu", enabled=False)
     autocast_enabled = bool(cfg.use_amp) and device.type == "cuda"
@@ -75,7 +85,7 @@ def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, t
         y = y.to(device, non_blocking=True)
 
         with torch.set_grad_enabled(train):
-            with torch.autocast(device_type=device.type, enabled=autocast_enabled):
+            with torch.autocast(device_type=device.type, enabled=autocast_enabled, dtype=_AMP_DTYPE):
                 pred = model(x, d, inj)
                 loss, l_sf, l_vd = compute_loss_terms(pred, y, cfg)
 
@@ -133,10 +143,17 @@ def run_one_epoch(model, loader, optimizer, cfg: Config, device: torch.device, t
     return result
 
 
-def evaluate_epoch(model, loader, cfg: Config, device: torch.device, calibration: dict):
+def evaluate_epoch(model, loader, cfg: Config, device: torch.device, calibration: dict,
+                   compute_uncertainty: bool = True):
     """sf_r2/vd_r2/sf_rmse/vd_rmse se calculan una sola vez al final sobre el dataset
     completo (acumulación global de SS_res/SS_tot y suma de errores cuadrados). El resto
     de las métricas (loss, incertidumbre) sí son promediables por batch.
+
+    val_loss/R²/RMSE se computan SIEMPRE con un forward determinista (dropout off en
+    model.eval()), de modo que la selección de best.pt es consistente entre épocas. La
+    incertidumbre MC-Dropout (cara: cfg.uncertainty_passes forwards por batch) solo se
+    calcula si compute_uncertainty=True; en caso contrario esas métricas quedan en su
+    default trivial (0.0 incertidumbre / 1.0 confianza vía pred_std=0).
 
     El forward corre bajo torch.autocast si cfg.use_amp esta activo (M2) — misma
     politica de memoria que run_one_epoch, sin necesitar GradScaler (no hay backward)."""
@@ -165,9 +182,20 @@ def evaluate_epoch(model, loader, cfg: Config, device: torch.device, calibration
             inj = inj.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
 
-            with torch.autocast(device_type=device.type, enabled=autocast_enabled):
-                pred, pred_std = predict_with_uncertainty(model, x, d, inj, cfg.uncertainty_passes)
-                loss, metrics = compute_all_metrics(pred, y, cfg)
+            with torch.autocast(device_type=device.type, enabled=autocast_enabled, dtype=_AMP_DTYPE):
+                # Forward determinista (model.eval() => dropout off) para loss/R²/RMSE:
+                # base consistente de seleccion de best.pt en todas las épocas.
+                pred = model(x, d, inj)
+            # Loss/metricas/incertidumbre en float32: bajo AMP pred sale en bfloat16 y
+            # torch.quantile (summarize_uncertainty) no acepta ese dtype.
+            pred = pred.float()
+            loss, metrics = compute_all_metrics(pred, y, cfg)
+            if compute_uncertainty:
+                with torch.autocast(device_type=device.type, enabled=autocast_enabled, dtype=_AMP_DTYPE):
+                    _, pred_std = predict_with_uncertainty(model, x, d, inj, cfg.uncertainty_passes)
+                pred_std = pred_std.float()
+            else:
+                pred_std = torch.zeros_like(pred)
             metrics.update(summarize_uncertainty(pred_std, calibration))
 
             update_global_regression_accumulators(regression_accumulators, "sf", pred[:, :, 0], y[:, :, 0])
@@ -222,7 +250,11 @@ def main(cfg: Config):
     optimizer = torch.optim.AdamW(param_groups, lr=cfg.lr)
     scheduler = build_scheduler(optimizer, cfg)
     amp_enabled = bool(cfg.use_amp) and device.type == "cuda"
-    scaler = torch.amp.GradScaler(device.type if device.type == "cuda" else "cpu", enabled=amp_enabled)
+    # GradScaler siempre deshabilitado: la ruta AMP usa bfloat16 (_AMP_DTYPE), que no
+    # necesita loss scaling; ademas unscale_ no soporta los params ComplexFloat del FNO.
+    scaler = torch.amp.GradScaler(device.type if device.type == "cuda" else "cpu", enabled=False)
+    if amp_enabled:
+        logger.info("[AMP] Mixed precision activo en bfloat16 (sin GradScaler; params complejos).")
     if cfg.use_amp and device.type != "cuda":
         logger.warning("[AMP] use_amp=True pero el dispositivo no es CUDA; se ignora (M2 solo aplica en GPU).")
 
@@ -295,7 +327,15 @@ def main(cfg: Config):
         logger.info("El entrenamiento ya alcanzo la epoch %d.", cfg.epochs)
         return
 
-    calibration = load_or_create_uncertainty_calibration(calibration_path, model, val_loader, cfg, device)
+    # Calibracion inicial perezosa: se carga de disco si existe, si no se arranca con el
+    # default trivial. La calibracion real (cara) se computa en las épocas de incertidumbre
+    # (uncertainty_eval_interval), no al arrancar — evita pagar uncertainty_passes forwards
+    # sobre todo val antes de la primera época.
+    calibration = (
+        load_json(calibration_path, default=default_uncertainty_calibration())
+        if calibration_path.exists()
+        else default_uncertainty_calibration()
+    )
 
     early_stopping_counter = 0
     pause_datetime = get_next_pause_datetime(cfg.pause_hour)
@@ -307,15 +347,22 @@ def main(cfg: Config):
         # train que antes hacia evaluate_epoch(train_loader) cada epoca (A3).
         train_metrics = run_one_epoch(model, train_loader, optimizer, cfg, device, train=True, scaler=scaler)
 
-        # Sin dropout (model_has_dropout=False) la calibracion es siempre el mismo
-        # default trivial; recalibrar y reescribir el JSON cada epoca no aporta nada
-        # (A3, ligado a C2). Solo se recalibra cuando la feature de incertidumbre
-        # esta realmente activa.
-        if model_has_dropout(model):
+        # La incertidumbre MC-Dropout (cfg.uncertainty_passes forwards sobre val, muy
+        # cara) es un diagnostico PERIODICO: se recalibra y se computa solo cada
+        # cfg.uncertainty_eval_interval épocas y en la época final — no cada época.
+        # val_loss/R²/RMSE (y la seleccion de best.pt) usan siempre el forward
+        # determinista de evaluate_epoch, así que no dependen de esto. Requiere dropout
+        # activo (model_has_dropout, ligado a C2); sin dropout la calibracion es trivial.
+        do_uncertainty = model_has_dropout(model) and (
+            epoch == cfg.epochs
+            or (cfg.uncertainty_eval_interval > 0 and epoch % cfg.uncertainty_eval_interval == 0)
+        )
+        if do_uncertainty:
             calibration = calibrate_uncertainty(model, val_loader, cfg, device)
             save_json(calibration_path, calibration)
 
-        val_metrics = evaluate_epoch(model, val_loader, cfg, device, calibration)
+        val_metrics = evaluate_epoch(model, val_loader, cfg, device, calibration,
+                                     compute_uncertainty=do_uncertainty)
 
         history_row = {
             "epoch": epoch,

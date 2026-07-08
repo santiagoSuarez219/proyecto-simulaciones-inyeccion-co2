@@ -48,6 +48,11 @@ class Config:
     save_epoch_pngs: bool = False
     epoch_png_examples: int = 1
     uncertainty_passes: int = 30
+    # Cada cuantas epocas se recalibra y se computa la incertidumbre MC-Dropout completa
+    # (cara: uncertainty_passes forwards sobre val). El val_loss/R²/RMSE y la seleccion de
+    # best.pt usan SIEMPRE el forward determinista por epoca; la incertidumbre es un
+    # diagnostico periodico. <=0 => solo en la epoca final. La epoca final siempre se computa.
+    uncertainty_eval_interval: int = 10
 
 
 CFG = Config()

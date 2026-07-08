@@ -1,16 +1,19 @@
 """
-M2 — mixed precision (AMP). Estos tests corren en CPU (sin GPU en esta sesion),
-por lo que NO ejercitan el path real de float16/GradScaler en CUDA. Solo
-verifican que: (a) cfg.use_amp=True no rompe nada en CPU (autocast/scaler se
-ignoran automaticamente fuera de CUDA), y (b) el forward sigue siendo correcto.
-Verificacion completa en GPU real queda pendiente (requiere hardware CUDA).
+M2 — mixed precision (AMP). Los tests de CPU verifican que: (a) cfg.use_amp=True no
+rompe nada en CPU (autocast/scaler se ignoran fuera de CUDA), y (b) el forward sigue
+siendo correcto. El test marcado `slow`+CUDA ejercita el path REAL en GPU y es la
+regresion del bug ComplexFloat (M2): la ruta AMP usa bfloat16 sin GradScaler porque
+unscale_ no soporta los parametros espectrales complejos del FNO. Verificado en RTX
+6000 Ada durante el preflight de entrenamiento.
 """
+import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from fno_co2.config import Config
+from fno_co2.inference.uncertainty import default_uncertainty_calibration
 from fno_co2.models.fno import PhysicalFNOArchitecture
-from fno_co2.training.loop import run_one_epoch
+from fno_co2.training.loop import _AMP_DTYPE, evaluate_epoch, run_one_epoch
 
 
 def _build_dummy_loader(n_samples=4, time_steps=4, h=8, w=8, batch_size=2):
@@ -42,6 +45,54 @@ def test_default_grad_scaler_is_noop_when_disabled():
     loss = x * 3.0
     scaled = scaler.scale(loss)
     assert scaled.item() == loss.item()  # sin escalado real
+
+
+def test_amp_dtype_is_bfloat16():
+    """La ruta AMP debe usar bfloat16 (no float16) para no depender de un GradScaler
+    incompatible con los params ComplexFloat del FNO (regresion del bug M2)."""
+    assert _AMP_DTYPE is torch.bfloat16
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requiere GPU CUDA (path real de AMP)")
+def test_run_one_epoch_with_amp_on_cuda_handles_complex_params():
+    """Regresion M2: en CUDA con use_amp=True, run_one_epoch NO debe crashear por los
+    gradientes ComplexFloat de FiLMSpectralBlock (el bug era GradScaler.unscale_ sobre
+    params complejos). Con bfloat16 sin GradScaler debe completar y dar loss finita."""
+    device = torch.device("cuda")
+    time_steps = 4
+    cfg = Config(time_steps=time_steps, hidden_dim=16, spectral_modes=4, batch_size=2, use_amp=True)
+    model = PhysicalFNOArchitecture(time_steps=time_steps, h_dim=16, modes=4).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+    loader = _build_dummy_loader(time_steps=time_steps, batch_size=2)
+    scaler = torch.amp.GradScaler("cuda", enabled=False)
+
+    result = run_one_epoch(model, loader, optimizer, cfg, device, train=True, scaler=scaler)
+
+    for key in ("loss", "sf_loss", "vd_loss", "sf_r2", "vd_r2", "sf_rmse", "vd_rmse"):
+        assert torch.isfinite(torch.tensor(result[key])), f"'{key}' no finito con AMP en CUDA"
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requiere GPU CUDA (path real de AMP)")
+@pytest.mark.parametrize("compute_uncertainty", [False, True])
+def test_evaluate_epoch_amp_on_cuda_handles_bf16(compute_uncertainty):
+    """Regresion: bajo AMP el forward sale en bfloat16; summarize_uncertainty usa
+    torch.quantile, que NO acepta bf16. evaluate_epoch debe castear a float32 y no
+    crashear, con o sin incertidumbre."""
+    device = torch.device("cuda")
+    time_steps = 4
+    cfg = Config(time_steps=time_steps, hidden_dim=16, spectral_modes=4, batch_size=2,
+                 use_amp=True, dropout_p=0.2, uncertainty_passes=3)
+    model = PhysicalFNOArchitecture(time_steps=time_steps, h_dim=16, modes=4, dropout_p=0.2).to(device)
+    loader = _build_dummy_loader(time_steps=time_steps, batch_size=2)
+
+    result = evaluate_epoch(model, loader, cfg, device, default_uncertainty_calibration(),
+                            compute_uncertainty=compute_uncertainty)
+
+    for key in ("loss", "sf_r2", "vd_r2", "sf_rmse", "vd_rmse",
+                "sf_uncertainty_mean", "sf_confidence_mean"):
+        assert torch.isfinite(torch.tensor(result[key])), f"'{key}' no finito bajo AMP"
 
 
 def test_film_spectral_block_fft_stays_finite_under_simulated_autocast():

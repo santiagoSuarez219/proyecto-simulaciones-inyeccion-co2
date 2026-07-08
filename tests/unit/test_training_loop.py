@@ -3,8 +3,9 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from fno_co2.config import Config
+from fno_co2.inference.uncertainty import default_uncertainty_calibration
 from fno_co2.models.fno import PhysicalFNOArchitecture
-from fno_co2.training.loop import run_one_epoch
+from fno_co2.training.loop import evaluate_epoch, run_one_epoch
 
 
 def _build_dummy_loader(n_samples=6, time_steps=4, h=8, w=8, batch_size=2):
@@ -102,6 +103,43 @@ def test_run_one_epoch_aborts_on_inf_loss():
 
     with pytest.raises(RuntimeError, match="NaN/Inf"):
         run_one_epoch(model, loader, optimizer, cfg, torch.device("cpu"), train=True)
+
+
+def test_evaluate_epoch_valloss_independent_of_uncertainty():
+    """Desacople incertidumbre↔selección: val_loss/R²/RMSE se computan con el forward
+    determinista y deben ser IDÉNTICOS con compute_uncertainty True o False, para que la
+    selección de best.pt sea consistente aunque la incertidumbre solo se calcule cada N
+    épocas. La incertidumbre MC (estocástica) no debe contaminar la métrica de selección."""
+    time_steps = 4
+    cfg = Config(time_steps=time_steps, hidden_dim=16, spectral_modes=4, batch_size=2,
+                 dropout_p=0.2, uncertainty_passes=5)
+    torch.manual_seed(7)
+    model = PhysicalFNOArchitecture(time_steps=time_steps, h_dim=16, modes=4, dropout_p=0.2)
+    loader = _build_dummy_loader(time_steps=time_steps, batch_size=2)
+    calib = default_uncertainty_calibration()
+
+    fast = evaluate_epoch(model, loader, cfg, torch.device("cpu"), calib, compute_uncertainty=False)
+    full = evaluate_epoch(model, loader, cfg, torch.device("cpu"), calib, compute_uncertainty=True)
+
+    for key in ("loss", "sf_loss", "vd_loss", "sf_r2", "vd_r2", "sf_rmse", "vd_rmse"):
+        assert fast[key] == full[key], f"'{key}' difiere entre fast/full: {fast[key]} vs {full[key]}"
+
+
+def test_evaluate_epoch_uncertainty_trivial_when_not_computed():
+    """Con compute_uncertainty=False la incertidumbre queda en su default trivial
+    (0.0 incertidumbre / 1.0 confianza), sin ejecutar las pasadas MC caras."""
+    time_steps = 4
+    cfg = Config(time_steps=time_steps, hidden_dim=16, spectral_modes=4, batch_size=2, dropout_p=0.2)
+    model = PhysicalFNOArchitecture(time_steps=time_steps, h_dim=16, modes=4, dropout_p=0.2)
+    loader = _build_dummy_loader(time_steps=time_steps, batch_size=2)
+
+    res = evaluate_epoch(model, loader, cfg, torch.device("cpu"),
+                         default_uncertainty_calibration(), compute_uncertainty=False)
+
+    assert res["sf_uncertainty_mean"] == 0.0
+    assert res["vd_uncertainty_mean"] == 0.0
+    assert res["sf_confidence_mean"] == 1.0
+    assert res["vd_confidence_mean"] == 1.0
 
 
 def test_run_one_epoch_does_not_raise_on_finite_data():
