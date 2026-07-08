@@ -1,4 +1,4 @@
-# spec-000 — Migración a 01-Modelo-ITM + correcciones de entrenamiento y pipeline [TESTING]
+# spec-000 — Migración a 01-Modelo-ITM + correcciones de entrenamiento y pipeline [DONE]
 
 > **Estado (2026-07-03):** todas las fases (A, A2, 6–10) completadas en código, con 108/108
 > tests pasando (incluidos `slow`) y smoke tests end-to-end reales. Se marca `[TESTING]`
@@ -10,13 +10,22 @@
 > un entrenamiento real completo (experimental, desactivado por defecto). Pasar a `[DONE]`
 > requiere ejecutar estas 3 verificaciones con GPU y datos reales.
 
-> **🖥️ Actualización (2026-07-06, preflight con GPU RTX 6000 Ada):** al ejercer M2 en
-> hardware real se descubrió que el path AMP `float16`+`GradScaler` **crasheaba** con los
-> parámetros `ComplexFloat` del FNO (`unscale_` no los soporta). **Corregido:** la ruta AMP
-> ahora usa **bfloat16 sin `GradScaler`** y se verificó en GPU (`run_one_epoch` con
-> `use_amp=True` completa con loss finita; nuevo test de regresión). Ver [`backlog.md`](backlog.md)
-> → *M2-AMP*. Con esto **M2 queda verificado en hardware**. Restan (1) **C1** y (3) **M3**,
-> ambas dependientes de una corrida de entrenamiento real que aún no se ha ejecutado.
+> **✅ Cierre a `[DONE]` (2026-07-08, GPU RTX 6000 Ada + datos reales):** ejecutadas las 3
+> verificaciones que bloqueaban el cierre:
+> - **C1** ✅ — corrida real (batch 16, lr 1.6e-3, AMP bf16, 14 épocas, early stopping):
+>   `val_loss ≈ 0.032` en la **misma escala** que `train_loss ≈ 0.03-0.04`, R² de SF/VD
+>   coherentes (~0.99/0.95). `best.pt` = época 6.
+> - **M2** ✅ — AMP corrió toda la corrida en **bfloat16 sin `GradScaler`** (ver más abajo);
+>   se descubrió y corrigió que `float16`+`GradScaler` crasheaba con los params `ComplexFloat`
+>   del FNO.
+> - **M3** ✅ — corrida real con `--use-group-norm true` (2 épocas, AMP bf16): entrena sin
+>   errores (params 17,671,362 vs 17,670,338 del default → GroupNorm activo), R² ~0.98/0.95.
+>
+> **Bonus:** **C2** (incertidumbre MC-Dropout) se validó end-to-end — señal no trivial en la
+> época 10 de la corrida real (`sf_unc=0.58`). Durante estas corridas se cazaron y corrigieron
+> **3 bugs latentes de la incertidumbre/AMP** que solo aparecían con GPU+datos reales
+> (ComplexFloat en `GradScaler`, `quantile` sobre bf16, `quantile` con >2²⁴ elementos) y se
+> desacopló la incertidumbre del loop por costo. Detalle en [`backlog.md`](backlog.md).
 
 > **🔄 Actualización de nomenclatura (posterior a la redacción):** el paquete se **renombró
 > de `modelo_itm` a `fno_co2`** (commit `refactor: rename package modelo_itm to fno_co2`).
@@ -638,9 +647,11 @@ se ejecuta desde el paquete único `fno_co2`; ya no hay dependencia de la ruta
   por defecto**, no se cambia la arquitectura del modelo default (tal como pide el spec: no
   tocar la arquitectura salvo donde se indique explícitamente). Incluido en
   `build_run_signature` (cambia arquitectura → invalida `--auto-resume` si difiere). Expuesto
-  como `--use-group-norm` en `scripts/train.py`. **No verificado en un entrenamiento real
-  completo** (sin datos/GPU en esta sesión) — queda como corrección disponible para evaluar,
-  no como recomendación de activarla sin más pruebas.
+  como `--use-group-norm` en `scripts/train.py`. **Verificado en hardware real (2026-07-08):**
+  corrida con `--use-group-norm true` + AMP bf16 sobre datos reales (2 épocas) entrena sin
+  errores, con GroupNorm activo (params 17,671,362 vs 17,670,338 del default) y R² ~0.98/0.95.
+  Sigue **desactivado por defecto** — corrección disponible/validada, no recomendación de
+  activarla sin evaluación de convergencia completa.
   **Verificación:** `tests/unit/test_model_forward.py` (+3 tests) — forward finito con
   `h_dim` no múltiplo de 8 (12, ejercita el fallback de `_group_norm_num_groups`), capas
   `GroupNorm` presentes solo cuando `use_group_norm=True`. Smoke test end-to-end con
