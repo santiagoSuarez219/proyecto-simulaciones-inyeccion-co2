@@ -10,6 +10,25 @@
 > un entrenamiento real completo (experimental, desactivado por defecto). Pasar a `[DONE]`
 > requiere ejecutar estas 3 verificaciones con GPU y datos reales.
 
+> **🖥️ Actualización (2026-07-06, preflight con GPU RTX 6000 Ada):** al ejercer M2 en
+> hardware real se descubrió que el path AMP `float16`+`GradScaler` **crasheaba** con los
+> parámetros `ComplexFloat` del FNO (`unscale_` no los soporta). **Corregido:** la ruta AMP
+> ahora usa **bfloat16 sin `GradScaler`** y se verificó en GPU (`run_one_epoch` con
+> `use_amp=True` completa con loss finita; nuevo test de regresión). Ver [`backlog.md`](backlog.md)
+> → *M2-AMP*. Con esto **M2 queda verificado en hardware**. Restan (1) **C1** y (3) **M3**,
+> ambas dependientes de una corrida de entrenamiento real que aún no se ha ejecutado.
+
+> **🔄 Actualización de nomenclatura (posterior a la redacción):** el paquete se **renombró
+> de `modelo_itm` a `fno_co2`** (commit `refactor: rename package modelo_itm to fno_co2`).
+> Todas las rutas de este spec se han actualizado en consecuencia: import name `fno_co2`
+> (antes `modelo_itm`), nombre de distribución `fno-co2` (antes `modelo-itm`), código en
+> `src/fno_co2/**`, ETL en `src/fno_co2/etl/`, comandos `python -m fno_co2.etl` y
+> `import fno_co2`. Los anclajes históricos a `train_dataset.py` y `cmg2tensor/…` se dejan
+> como estaban (trazabilidad al origen). Además, el `cmg2tensor` y el código de entrenamiento
+> originales se conservan hoy como **snapshot de referencia dentro de este repo** (commit
+> `chore(legacy): añadir snapshot de cmg2tensor y código de entrenamiento como referencia`),
+> no como repos externos por ruta.
+
 > **Autor:** revisión de código (rol `@architect`)
 > **Fecha:** 2026-07-02
 > **Resultado de:** unificación de los antiguos `spec-000` (migración/entorno/repo) y
@@ -23,7 +42,7 @@
 
 > **✏️ Enmienda de alcance (2026-07-02, confirmada con el usuario):** el ETL `cmg2tensor`
 > **ya no queda como repositorio independiente**. Se migra dentro de `01-Modelo-ITM/` como
-> subpaquete unificado `src/modelo_itm/etl/` (imports `cmg2tensor.*` → `modelo_itm.etl.*`),
+> subpaquete unificado `src/fno_co2/etl/` (imports `cmg2tensor.*` → `fno_co2.etl.*`),
 > mediante **copia limpia sin historial** (el repo de Reinaldo-06 se conserva como
 > referencia). Con esto el pipeline completo (ETL → modelo → entrenamiento → inferencia →
 > visualización) vive en un solo paquete. Ver **PARTE A2**.
@@ -32,12 +51,12 @@
 - **Parte A — Migración e infraestructura** (Fases 1–5): mueve el código de entrenamiento
   sin cambiar su comportamiento y monta entorno + repo.
 - **Parte A2 — Migración de `cmg2tensor`** (Fases A2.1–A2.4): pliega el ETL en
-  `src/modelo_itm/etl/` sin cambiar su comportamiento.
+  `src/fno_co2/etl/` sin cambiar su comportamiento.
 - **Parte B — Correcciones sobre la nueva estructura** (Fases 6–10): aplica los arreglos,
   incluidas las correcciones del ETL (C1, B3) sobre su **nueva** ubicación.
 
 ⚠️ **Las Partes A y A2 deben completarse antes de la Parte B.** Las correcciones referencian
-los módulos de `src/modelo_itm/` que la migración crea. Las referencias `train_dataset.py:NNN`
+los módulos de `src/fno_co2/` que la migración crea. Las referencias `train_dataset.py:NNN`
 y `cmg2tensor/src/cmg2tensor/…` que aparecen en los hallazgos son los anclajes originales
 (traducidos al módulo destino según el "Mapa de módulos" de la Fase 2 y de la Fase A2.1).
 
@@ -53,13 +72,13 @@ Decisiones confirmadas con el usuario en sesiones previas:
 
 | Decisión | Valor |
 |---|---|
-| Alcance de la migración | El **código de entrenamiento** (`Codigo Entrenamiento/train_dataset.py`) → `01-Modelo-ITM/src/modelo_itm/` **y** el ETL `cmg2tensor` → `01-Modelo-ITM/src/modelo_itm/etl/`. Papers, `.pptx` y `.docx` **no** se mueven. |
-| Relación con `cmg2tensor` (**enmendada 2026-07-02**) | **Se integra dentro de `01-Modelo-ITM`** como subpaquete unificado `src/modelo_itm/etl/`. Antes era "repo independiente referenciado por ruta"; ahora el pipeline completo vive en un solo paquete. El repo original de Reinaldo-06 se conserva **solo como referencia** (no se borra, no se sincroniza). |
-| Estructura del ETL migrado | **Paquete unificado** (no monorepo de 2 paquetes): `cmg2tensor` se pliega como `modelo_itm.etl`; todos los imports `cmg2tensor.*` pasan a `modelo_itm.etl.*` y `python -m cmg2tensor` pasa a `python -m modelo_itm.etl`. |
+| Alcance de la migración | El **código de entrenamiento** (`Codigo Entrenamiento/train_dataset.py`) → `01-Modelo-ITM/src/fno_co2/` **y** el ETL `cmg2tensor` → `01-Modelo-ITM/src/fno_co2/etl/`. Papers, `.pptx` y `.docx` **no** se mueven. |
+| Relación con `cmg2tensor` (**enmendada 2026-07-02**) | **Se integra dentro de `01-Modelo-ITM`** como subpaquete unificado `src/fno_co2/etl/`. Antes era "repo independiente referenciado por ruta"; ahora el pipeline completo vive en un solo paquete. El repo original de Reinaldo-06 se conserva **solo como referencia** (no se borra, no se sincroniza). |
+| Estructura del ETL migrado | **Paquete unificado** (no monorepo de 2 paquetes): `cmg2tensor` se pliega como `fno_co2.etl`; todos los imports `cmg2tensor.*` pasan a `fno_co2.etl.*` y `python -m cmg2tensor` pasa a `python -m fno_co2.etl`. |
 | Historial git del ETL | **Copia limpia sin historial** (ni `git subtree` ni `filter-repo`). Los commits quedan en el repo original de Reinaldo-06. |
-| Versión de Python | **3.12** (`requires-python = ">=3.12,<3.13"`) — soportado por PyTorch 2.12.x; ecosistema (`numpy`, `pandas`, `scikit-learn`, `mysql-connector-python`, `pyodbc`) maduro; se evita 3.13/3.14 (demasiado nuevas para dependencias de BD) y 3.9/3.10 (innecesariamente antiguas). |
+| Versión de Python | **3.12** (`requires-python = ">=3.12,<3.13"`) — soportado por PyTorch 2.x; ecosistema (`numpy`, `pandas`, `scikit-learn`, `mysql-connector-python`, `pyodbc`) maduro; se evita 3.13/3.14 (demasiado nuevas para dependencias de BD) y 3.9/3.10 (innecesariamente antiguas). |
 | Gestor de entornos | `pip` + `venv` — **no conda**, ya establecido en `CLAUDE.md`. |
-| Estructura destino | Ya creada como scaffold vacío: `src/modelo_itm/{data,models,training,inference,visualization,utils}`, `scripts/`, `tests/{unit,integration}`, `configs/`, `outputs/{checkpoints,logs,figures}`, `docs/`, `specs/`, `pyproject.toml`, `pytest.ini`, `.gitignore`, `README.md`. La Parte A2 añade `src/modelo_itm/etl/`, `scripts/etl/`, `sql/` y tests del ETL. |
+| Estructura destino | Ya creada como scaffold vacío: `src/fno_co2/{data,models,training,inference,visualization,utils}`, `scripts/`, `tests/{unit,integration}`, `configs/`, `outputs/{checkpoints,logs,figures}`, `docs/`, `specs/`, `pyproject.toml`, `pytest.ini`, `.gitignore`, `README.md`. La Parte A2 añade `src/fno_co2/etl/`, `scripts/etl/`, `sql/` y tests del ETL. |
 
 **Estado verificado del ecosistema (previo a este spec):**
 - `09-Proyecto-Deep-Learning/` (raíz) **no** es repositorio git.
@@ -76,7 +95,7 @@ Decisiones confirmadas con el usuario en sesiones previas:
 - `gh` (GitHub CLI) **no está instalado**.
 - Inconsistencia previa del `README.md` de `cmg2tensor` (`pip install -e .` sin
   `pyproject.toml`/`setup.py`): **se resuelve** con la Parte A2, al quedar el ETL dentro del
-  paquete instalable `modelo_itm` (que sí tiene `pyproject.toml`).
+  paquete instalable `fno_co2` (que sí tiene `pyproject.toml`).
 
 ---
 
@@ -112,39 +131,39 @@ Decisiones confirmadas con el usuario en sesiones previas:
    §Dependencias → documentar el flujo `venv` + `pip install -e ".[dev]"` como reemplazo
    del `pip install torch numpy ...` suelto.
 
-**Verificación:** `python --version` en el venv reporta 3.12.x; `pip show modelo-itm`
+**Verificación:** `python --version` en el venv reporta 3.12.x; `pip show fno-co2`
 confirma instalación editable; `pip list` no mezcla paquetes de conda `base`.
 
 ---
 
-### Fase 2 — Migración de código: `train_dataset.py` → `src/modelo_itm/`
+### Fase 2 — Migración de código: `train_dataset.py` → `src/fno_co2/`
 
 **Mapa de módulos** (origen: `Codigo Entrenamiento/train_dataset.py`; se usa como
 traductor de rutas para los hallazgos de la Parte B):
 
 | Módulo destino | Contenido movido |
 |---|---|
-| `src/modelo_itm/config.py` | `Config` (dataclass), `CFG`, `DEFAULT_DEVICE` |
-| `src/modelo_itm/utils/device.py` | `seed_everything`, `resolve_device`, `describe_device`, `assert_model_on_device` |
-| `src/modelo_itm/utils/io.py` | `ensure_dir`, `save_json`, `load_json` |
-| `src/modelo_itm/utils/time.py` | `get_next_pause_datetime` |
-| `src/modelo_itm/data/dataset.py` | `_LAYER_RE`, `_k`, `load_pt`, `load_injection_series`, `DatasetLayers` |
-| `src/modelo_itm/data/loaders.py` | `resolve_num_workers`, `build_loader`, `resolve_dir`, `build_datasets` |
-| `src/modelo_itm/models/blocks.py` | `ResBlock`, `FiLMSpectralBlock` |
-| `src/modelo_itm/models/fno.py` | `PhysicalFNOArchitecture` |
-| `src/modelo_itm/training/losses.py` | `spatial_gradient_loss`, `compute_loss_terms` |
-| `src/modelo_itm/training/metrics.py` | `torch_r2_score`, `compute_rmse`, `compute_all_metrics`, `init_running_stats`, `update_running_stats`, `finalize_running_stats`, `count_parameters` |
-| `src/modelo_itm/training/checkpoint.py` | `build_run_signature`, `check_resume_compatibility`, `save_training_checkpoint`, `try_resume_training` |
-| `src/modelo_itm/training/loop.py` | `run_one_epoch`, `evaluate_epoch`, `main()` |
-| `src/modelo_itm/inference/uncertainty.py` | `model_has_dropout`, `default_uncertainty_calibration`, `predict_with_uncertainty`, `calibrate_uncertainty`, `build_uncertainty_map`, `summarize_uncertainty`, `load_or_create_uncertainty_calibration` |
-| `src/modelo_itm/visualization/plots.py` | `save_history_plots`, `save_epoch_visuals` |
-| `scripts/train.py` | `str_to_bool`, `build_parser`, bloque `if __name__ == "__main__":` — entrypoint delgado que importa de `modelo_itm` y llama a `training.loop.main()` |
+| `src/fno_co2/config.py` | `Config` (dataclass), `CFG`, `DEFAULT_DEVICE` |
+| `src/fno_co2/utils/device.py` | `seed_everything`, `resolve_device`, `describe_device`, `assert_model_on_device` |
+| `src/fno_co2/utils/io.py` | `ensure_dir`, `save_json`, `load_json` |
+| `src/fno_co2/utils/time.py` | `get_next_pause_datetime` |
+| `src/fno_co2/data/dataset.py` | `_LAYER_RE`, `_k`, `load_pt`, `load_injection_series`, `DatasetLayers` |
+| `src/fno_co2/data/loaders.py` | `resolve_num_workers`, `build_loader`, `resolve_dir`, `build_datasets` |
+| `src/fno_co2/models/blocks.py` | `ResBlock`, `FiLMSpectralBlock` |
+| `src/fno_co2/models/fno.py` | `PhysicalFNOArchitecture` |
+| `src/fno_co2/training/losses.py` | `spatial_gradient_loss`, `compute_loss_terms` |
+| `src/fno_co2/training/metrics.py` | `torch_r2_score`, `compute_rmse`, `compute_all_metrics`, `init_running_stats`, `update_running_stats`, `finalize_running_stats`, `count_parameters` |
+| `src/fno_co2/training/checkpoint.py` | `build_run_signature`, `check_resume_compatibility`, `save_training_checkpoint`, `try_resume_training` |
+| `src/fno_co2/training/loop.py` | `run_one_epoch`, `evaluate_epoch`, `main()` |
+| `src/fno_co2/inference/uncertainty.py` | `model_has_dropout`, `default_uncertainty_calibration`, `predict_with_uncertainty`, `calibrate_uncertainty`, `build_uncertainty_map`, `summarize_uncertainty`, `load_or_create_uncertainty_calibration` |
+| `src/fno_co2/visualization/plots.py` | `save_history_plots`, `save_epoch_visuals` |
+| `scripts/train.py` | `str_to_bool`, `build_parser`, bloque `if __name__ == "__main__":` — entrypoint delgado que importa de `fno_co2` y llama a `training.loop.main()` |
 
 **Pasos:**
 1. Crear los archivos según la tabla dentro del scaffold existente; agregar re-exports en
    los `__init__.py` de cada subpaquete.
 2. Mover el código función por función, ajustando imports relativos
-   (`from modelo_itm.config import Config`, etc.) y quitando imports monolíticos donde no
+   (`from fno_co2.config import Config`, etc.) y quitando imports monolíticos donde no
    se usen.
 3. Reubicar el estado global mutable de "emitir una vez"
    (`_MC_DROPOUT_WARNING_EMITTED`, `_CUDA_BATCH_REPORT_EMITTED`) a variables de módulo en
@@ -155,7 +174,7 @@ traductor de rutas para los hallazgos de la Parte B):
    python scripts/train.py --data-root ../cmg2tensor/data/processed --output-dir outputs/ ...
    ```
 5. Verificación de equivalencia (mínima, sin GPU en esta sesión):
-   - `python -c "import modelo_itm"` no falla.
+   - `python -c "import fno_co2"` no falla.
    - `python scripts/train.py --help` expone los mismos flags que el script original.
    - Si hay muestra de datos, correr `--overfit-sample-idx 0 --epochs 1` y comparar
      métricas contra el `train_dataset.py` original (antes de eliminarlo en la Fase 5).
@@ -170,7 +189,7 @@ completa del hallazgo M8):
   (p. ej. 4) hace un forward y produce el shape `(B, T, 2, H, W)`.
 
 **Verificación:** `pytest tests/unit -v` pasa; `scripts/train.py --help` igual al original;
-ningún módulo bajo `src/modelo_itm/` supera ~300 líneas sin necesidad.
+ningún módulo bajo `src/fno_co2/` supera ~300 líneas sin necesidad.
 
 ---
 
@@ -185,7 +204,7 @@ ningún módulo bajo `src/modelo_itm/` supera ~300 líneas sin necesidad.
    ```bash
    git init -b main
    git add <archivos específicos, no -A>
-   git commit -m "chore: scaffold del paquete modelo_itm y migración de train_dataset.py"
+   git commit -m "chore: scaffold del paquete fno_co2 y migración de train_dataset.py"
    git branch development
    ```
 4. Estructura de ramas según `CLAUDE.md` §Git: `main` (estable) y `development`
@@ -204,7 +223,7 @@ ningún módulo bajo `src/modelo_itm/` supera ~300 líneas sin necesidad.
 
 1. Confirmar en el momento de ejecutar (no asumir ahora): cuenta/organización destino
    (¿`Reinaldo-06`, la personal del usuario, otra?), visibilidad (privado/público) y
-   nombre exacto (sugerido `modelo-itm`; GitHub no admite espacios).
+   nombre exacto (sugerido `fno-co2`; GitHub no admite espacios).
 2. Instalar `gh` si se crea desde terminal (no está instalado): `brew install gh` +
    `gh auth login`. Alternativa: crear el repo vacío desde la web (sin README/licencia/
    gitignore automáticos, para no chocar con los archivos locales).
@@ -240,7 +259,7 @@ usuario).
 
 ---
 
-# PARTE A2 — Migración de `cmg2tensor` a `src/modelo_itm/etl/`
+# PARTE A2 — Migración de `cmg2tensor` a `src/fno_co2/etl/`
 
 > Migración **quirúrgica** del ETL, con la misma filosofía que la Parte A: mover código y
 > reescribir imports **sin** cambiar comportamiento. Las correcciones del ETL (C1, B3) se
@@ -254,12 +273,12 @@ usuario).
 
 ### Fase A2.1 — Mapa de módulos del ETL y reescritura de imports
 
-**Mapa de módulos** (origen: `cmg2tensor/src/cmg2tensor/`; destino: `src/modelo_itm/etl/`).
+**Mapa de módulos** (origen: `cmg2tensor/src/cmg2tensor/`; destino: `src/fno_co2/etl/`).
 El plegado es 1:1 conservando la estructura interna:
 
-| Origen (`cmg2tensor/src/cmg2tensor/`) | Destino (`src/modelo_itm/etl/`) |
+| Origen (`cmg2tensor/src/cmg2tensor/`) | Destino (`src/fno_co2/etl/`) |
 |---|---|
-| `__init__.py`, `__main__.py` | `etl/__init__.py`, `etl/__main__.py` (habilita `python -m modelo_itm.etl`) |
+| `__init__.py`, `__main__.py` | `etl/__init__.py`, `etl/__main__.py` (habilita `python -m fno_co2.etl`) |
 | `cli.py`, `config.py`, `orchestrator.py` | `etl/cli.py`, `etl/config.py`, `etl/orchestrator.py` |
 | `discovery.py`, `parse_txt.py`, `build_tensors.py` | `etl/discovery.py`, `etl/parse_txt.py`, `etl/build_tensors.py` |
 | `normalize.py`, `stats.py`, `histograms.py` | `etl/normalize.py`, `etl/stats.py`, `etl/histograms.py` |
@@ -267,18 +286,18 @@ El plegado es 1:1 conservando la estructura interna:
 | `utils/{__init__,apply_train_test_split,check_formats,raw_standardization,simulations_dataset,standardize_formats}.py` | `etl/utils/…` (misma estructura) |
 
 **Pasos:**
-1. Copiar los 20 módulos a `src/modelo_itm/etl/` respetando la jerarquía `pipeline/` y
+1. Copiar los 20 módulos a `src/fno_co2/etl/` respetando la jerarquía `pipeline/` y
    `utils/`.
 2. **Reescritura mecánica de imports** en todo el código copiado:
-   - `import cmg2tensor` → `import modelo_itm.etl`
-   - `from cmg2tensor.X import Y` → `from modelo_itm.etl.X import Y`
-   - `from cmg2tensor.pipeline.Z import …` → `from modelo_itm.etl.pipeline.Z import …`
+   - `import cmg2tensor` → `import fno_co2.etl`
+   - `from cmg2tensor.X import Y` → `from fno_co2.etl.X import Y`
+   - `from cmg2tensor.pipeline.Z import …` → `from fno_co2.etl.pipeline.Z import …`
    - Imports relativos internos (`from .parse_txt import …`) se conservan tal cual.
 3. Verificar que no queda ninguna referencia literal a `cmg2tensor` en el código migrado
-   (`grep -rn "cmg2tensor" src/modelo_itm/etl/` debe salir vacío salvo comentarios/paths de
+   (`grep -rn "cmg2tensor" src/fno_co2/etl/` debe salir vacío salvo comentarios/paths de
    datos deliberados).
-4. `etl/config.py` y `etl/utils/` **no** colisionan con `modelo_itm/config.py` ni
-   `modelo_itm/utils/` (viven bajo el namespace `etl`). No fusionar ambos `config`.
+4. `etl/config.py` y `etl/utils/` **no** colisionan con `fno_co2/config.py` ni
+   `fno_co2/utils/` (viven bajo el namespace `etl`). No fusionar ambos `config`.
 
 > ⚠️ El estado interno del ETL (rutas de datos por defecto, nombres de reportes) se conserva
 > **idéntico**; cualquier ajuste de rutas de datos es un detalle de runtime (`--raw-root`,
@@ -288,8 +307,8 @@ El plegado es 1:1 conservando la estructura interna:
 
 | Origen | Destino | Nota |
 |---|---|---|
-| `cmg2tensor/scripts/*.py` (9 scripts) | `scripts/etl/` | Reescribir imports a `modelo_itm.etl.*`; mantener nombres (`make_split.py`, `etl_mysql.py`, `check_missing_processed.py`, …) |
-| `cmg2tensor/scripts/*.ps1` | `scripts/etl/` | Actualizar invocaciones `python -m cmg2tensor` → `python -m modelo_itm.etl` |
+| `cmg2tensor/scripts/*.py` (9 scripts) | `scripts/etl/` | Reescribir imports a `fno_co2.etl.*`; mantener nombres (`make_split.py`, `etl_mysql.py`, `check_missing_processed.py`, …) |
+| `cmg2tensor/scripts/*.ps1` | `scripts/etl/` | Actualizar invocaciones `python -m cmg2tensor` → `python -m fno_co2.etl` |
 | `cmg2tensor/sql/` (DDL MySQL/SQL Server) | `sql/` (raíz de `01-Modelo-ITM`) | Sin cambios de contenido |
 | `cmg2tensor/tests/` | `tests/etl/` (con `unit/` e `integration/` según corresponda) | Reescribir imports; marcar los lentos con `@pytest.mark.slow` |
 | `cmg2tensor/docs/database_schema.md` | `docs/` | Sin cambios de contenido |
@@ -303,18 +322,18 @@ existe/está ignorada; el ETL sigue leyendo/escribiendo por rutas CLI.
 El ETL añade dependencias que hoy no están en `pyproject.toml` (que solo tiene `torch`,
 `numpy`, `tqdm`, `matplotlib`):
 
-1. **Core** (necesarias para `import modelo_itm.etl`): añadir `pandas`, `openpyxl`,
+1. **Core** (necesarias para `import fno_co2.etl`): añadir `pandas`, `openpyxl`,
    `scikit-learn`.
 2. **Extra opcional `[db]`** (solo ETL relacional, no requerido para transformar tensores ni
    entrenar): `mysql-connector-python`, `pyodbc`.
 3. No hace falta declarar el subpaquete: `tool.setuptools.packages.find` con `where=["src"]`
-   ya recoge `modelo_itm.etl` automáticamente al ser subpaquete de `modelo_itm`.
+   ya recoge `fno_co2.etl` automáticamente al ser subpaquete de `fno_co2`.
 4. Reinstalar en editable: `pip install -e ".[dev]"` (y `".[dev,db]"` si se usa la BD).
 
 ### Fase A2.4 — Verificación de equivalencia del ETL
 
-- `python -c "import modelo_itm.etl"` no falla.
-- `python -m modelo_itm.etl --help` expone los mismos flags que `python -m cmg2tensor --help`
+- `python -c "import fno_co2.etl"` no falla.
+- `python -m fno_co2.etl --help` expone los mismos flags que `python -m cmg2tensor --help`
   del repo original.
 - `grep -rn "import cmg2tensor\|from cmg2tensor" src/ scripts/ tests/` sale vacío.
 - `pytest tests/etl -m "not slow" -v` pasa (equivalente a los tests originales de
@@ -323,15 +342,15 @@ El ETL añade dependencias que hoy no están en `pyproject.toml` (que solo tiene
   `.pt`/reportes que el `cmg2tensor` original **antes** de aplicar C1/B3.
 
 **Documentación (parte de A2):** actualizar `CLAUDE.md` y `README.md`:
-- §Estructura del ecosistema → el ETL ya vive en `src/modelo_itm/etl/`; el bloque
+- §Estructura del ecosistema → el ETL ya vive en `src/fno_co2/etl/`; el bloque
   `cmg2tensor/` externo pasa a "referencia histórica".
 - §Comandos ETL → reemplazar `$env:PYTHONPATH="src"; python -m cmg2tensor …` por
-  `python -m modelo_itm.etl …`; scripts en `scripts/etl/`.
+  `python -m fno_co2.etl …`; scripts en `scripts/etl/`.
 - Rutas `--data-root`/`--raw-root` → apuntar a donde vivan los datos (ya no a
   `../cmg2tensor/`); documentar que los datos **no** se versionan.
 
 **Verificación global de la Parte A2:** el pipeline completo (ETL → modelo → entrenamiento)
-se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la ruta
+se ejecuta desde el paquete único `fno_co2`; ya no hay dependencia de la ruta
 `../cmg2tensor/`. `--data-root` puede apuntar a donde vivan los datos procesados (p. ej.
 `data/processed/` local o una ruta externa).
 
@@ -341,7 +360,7 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
 
 > Cada fase va en su propia rama `bug/`, `feature/` o `exp/` desde `development` y no se
 > cierra hasta pasar revisión (`@reviewer`) y pruebas (`@tester`). Las rutas apuntan a los
-> módulos de `src/modelo_itm/` creados en la Parte A y a `src/modelo_itm/etl/` creado en la
+> módulos de `src/fno_co2/` creados en la Parte A y a `src/fno_co2/etl/` creado en la
 > Parte A2; entre paréntesis, el anclaje original en `train_dataset.py` o
 > `cmg2tensor/src/cmg2tensor/…` para trazabilidad.
 
@@ -352,11 +371,11 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
 #### C1. ✅ **Corregido en Fase 6 (código).** `test/` se guarda **sin normalizar** y se usa como set de validación
 > Reproceso de `data/processed/test/` con datos reales **pendiente** — no hay datos ni GPU
 > en esta sesión; requiere confirmación explícita antes de ejecutarse (ver §2 Riesgos).
-- **Dónde (tras Parte A2):** `src/modelo_itm/etl/pipeline/parallel.py`
+- **Dónde (tras Parte A2):** `src/fno_co2/etl/pipeline/parallel.py`
   (`normalize_this = normalize and split != "test"` ← `cmg2tensor/…/pipeline/parallel.py:194`),
-  `src/modelo_itm/etl/cli.py`
+  `src/fno_co2/etl/cli.py`
   (`if use_split_routing and split == "test": normalize_this_sim = False` ← `…/cli.py:402`).
-  El entrenamiento usa `val_dir="test"` (`src/modelo_itm/config.py` ← `train_dataset.py:31`).
+  El entrenamiento usa `val_dir="test"` (`src/fno_co2/config.py` ← `train_dataset.py:31`).
 - **Problema:** `train/` se escala a `[0,1]` con min-max global de train, pero `test/` se
   escribe en **unidades físicas crudas**. El modelo entrena en `[0,1]` y valida contra otra
   escala. Consecuencia: `val_loss`, `val_sf_rmse`, `val_vd_rmse`, `val_*_r2` no son
@@ -379,10 +398,10 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
   bloqueaba todo el pipeline paralelo), corregido en el mismo commit.
 
 #### C2. ✅ **Corregido en Fase 8 (Opción A, confirmada con el usuario vía `AskUserQuestion`).** La incertidumbre MC Dropout era **código muerto** (siempre cero)
-- **Dónde:** `PhysicalFNOArchitecture` (`src/modelo_itm/models/fno.py` +
+- **Dónde:** `PhysicalFNOArchitecture` (`src/fno_co2/models/fno.py` +
   `models/blocks.py` ← `train_dataset.py:625-673`) no contiene ninguna capa `nn.Dropout*`.
   `model_has_dropout()` siempre devuelve `False`, así que todo
-  `src/modelo_itm/inference/uncertainty.py` (← `:206-355`) hace short-circuit y devuelve
+  `src/fno_co2/inference/uncertainty.py` (← `:206-355`) hace short-circuit y devuelve
   **0.0 de incertidumbre y 1.0 de confianza** en todas las épocas.
 - **Problema:** contradice `CLAUDE.md` (feature "MC Dropout uncertainty") y el paper. Se
   paga complejidad y cómputo sin obtener señal.
@@ -411,7 +430,7 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
   preexistente B5 sin relación.
 
 #### C3. ✅ **Corregido en Fase 6.** Métricas R² y RMSE promediadas por batch (estadísticamente incorrectas)
-- **Dónde:** `evaluate_epoch` (`src/modelo_itm/training/loop.py` ←
+- **Dónde:** `evaluate_epoch` (`src/fno_co2/training/loop.py` ←
   `train_dataset.py:798-847`) acumula `sf_r2`, `vd_r2`, `sf_rmse`, `vd_rmse` por batch y
   luego promedia (`finalize_running_stats` en `training/metrics.py`).
 - **Problema:** el R² **no es aditivo**; promediar R² por batch ≠ R² global. El RMSE
@@ -444,7 +463,7 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
   bug que se corrige). 4/4 passed.
 
 #### C4. ✅ **Corregido en Fase 9.** `in_c` mal interpretado — bloqueaba **todo** entrenamiento real desde la Fase 2
-- **Dónde:** `PhysicalFNOArchitecture.__init__` (`src/modelo_itm/models/fno.py`).
+- **Dónde:** `PhysicalFNOArchitecture.__init__` (`src/fno_co2/models/fno.py`).
 - **Problema:** en el `train_dataset.py` **original**, `in_c=5` ya representa el total de
   canales que entran al encoder **después** de concatenar el canal de profundidad
   (`forward`: `torch.cat([x, depth_map], dim=1)`) — el encoder original usaba
@@ -484,7 +503,7 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
 ### 🟠 Altos — bugs / acoplamiento
 
 #### A1. ✅ **Corregido en Fase 7.** Índices temporales hardcodeados en la loss (acoplados a `time_steps=61`)
-- **Dónde:** `compute_loss_terms` (`src/modelo_itm/training/losses.py` ←
+- **Dónde:** `compute_loss_terms` (`src/fno_co2/training/losses.py` ←
   `train_dataset.py:685-689`): `pred[:, 0:1, 0]`, `pred[:, 1:21, 0]`, `pred[:, 21:61, 0]`.
 - **Problema:** los segmentos `t0 / t1:20 / t21:60` y sus pesos asumen exactamente 61
   timesteps. Con otro `cfg.time_steps` los slices dejan de cubrir el tensor (p. ej.
@@ -508,7 +527,7 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
 #### A2. ✅ **Corregido en Fase 7 (decisión de diseño confirmada con el usuario).** Normalización de inyección doble / inconsistente
 - **Dónde:** el ETL normaliza con stats globales
   (`normalize_series_minmax_with_global_stats`), pero `load_injection_series`
-  (`src/modelo_itm/data/dataset.py` ← `train_dataset.py:499-521`) vuelve a aplicar
+  (`src/fno_co2/data/dataset.py` ← `train_dataset.py:499-521`) vuelve a aplicar
   `log1p` + normalización por `max` local por muestra.
 - **Problema:** doble transformación no documentada; la escala efectiva depende del ETL.
   Dificulta reproducibilidad e interpretación física.
@@ -528,7 +547,7 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
   sanitización de NaN/Inf. 7/7 passed.
 
 #### A3. ✅ **Corregido en Fase 7.** Evaluación redundante y costosa por época
-- **Dónde:** el loop principal (`src/modelo_itm/training/loop.py:main` ←
+- **Dónde:** el loop principal (`src/fno_co2/training/loop.py:main` ←
   `train_dataset.py:1344-1349`) llama cada época: `run_one_epoch(train)` +
   `calibrate_uncertainty(val)` + `evaluate_epoch(train_dl)` + `evaluate_epoch(val_dl)`.
 - **Problema:** `evaluate_epoch(train_dl)` hace un forward completo extra sobre **todo
@@ -557,7 +576,7 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
   passed.
 
 #### A4. ✅ **Corregido en Fase 6.** Import roto bloqueaba el pipeline paralelo completo
-- **Dónde:** `src/modelo_itm/etl/pipeline/parallel.py` (línea 190, dentro del worker de
+- **Dónde:** `src/fno_co2/etl/pipeline/parallel.py` (línea 190, dentro del worker de
   Phase 2) ← preexistente en `cmg2tensor/src/cmg2tensor/pipeline/parallel.py:190`
   (confirmado con `diff` contra el repo original antes de la Parte A2 — no introducido por
   la migración).
@@ -602,9 +621,13 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
   float32 con `torch.autocast(enabled=False)` anidado, independientemente del contexto
   externo. **Verificación:** `tests/unit/test_amp.py` (3 tests) — confirma que la FFT se
   mantiene finita bajo un contexto autocast activo (simulado con bfloat16 en CPU) y que
-  `use_amp=True` en CPU es un no-op seguro. **Limitación:** sin GPU en esta sesión, el path
-  real de float16/GradScaler en CUDA no se ejerció; verificación completa queda pendiente
-  de hardware.
+  `use_amp=True` en CPU es un no-op seguro. **Actualización (2026-07-06, GPU real):** al
+  ejercer el path en CUDA se descubrió que `float16`+`GradScaler.unscale_` **no soporta**
+  los parámetros `ComplexFloat` del FNO y crasheaba. **Re-corregido:** la ruta AMP ahora usa
+  **bfloat16 sin `GradScaler`** (`_AMP_DTYPE`, `run_one_epoch`/`evaluate_epoch`); el scaler
+  queda `enabled=False` permanentemente. Verificado en RTX 6000 Ada con
+  `test_run_one_epoch_with_amp_on_cuda_handles_complex_params` (marcado `slow`+CUDA) —
+  **M2 queda verificado en hardware**. Ver [`backlog.md`](backlog.md) → *M2-AMP*.
 - **M3. ✅ Corregido en Fase 10 (EXPERIMENTAL, rama `exp/` sugerida por el spec).**
   **Sin normalización interna en la red.** No hay `LayerNorm`/`GroupNorm` en encoder,
   bloques FNO ni decoder. Evaluar añadirla para estabilidad. **Aplicado:** `ResBlock`
@@ -651,7 +674,7 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
   por `logger.info`/`.warning`/`.debug` según severidad. TensorBoard/W&B quedan fuera de
   alcance (mencionados como "considerar", no como corrección obligatoria).
   **Verificación:** `tests/unit/test_logging.py` (4 tests) — idempotencia de
-  `configure_logging()`, handler instalado correctamente; `grep -rn "print(" src/modelo_itm/`
+  `configure_logging()`, handler instalado correctamente; `grep -rn "print(" src/fno_co2/`
   (fuera de `etl/`) sale vacío; **smoke test end-to-end** de `main()` confirma el logging
   funciona en un entrenamiento real (formato `HH:MM:SS [INFO] mensaje`).
 - **M6. ✅ Corregido en Fase 9. Sin guardas de NaN/Inf** en loss o gradientes (solo hay `nan_to_num` en la
@@ -710,13 +733,13 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
   `weights_only=True` — confirmado con una prueba de round-trip real antes de aplicar el
   cambio. **Aplicado:** `checkpoint.py::try_resume_training` y `data/dataset.py::load_pt`
   ahora usan `weights_only=True` explícitamente (más seguro al cargar `.pt`/checkpoints de
-  terceros; ya era el default implícito en PyTorch 2.12.1 para `load_pt`, ahora es
+  terceros; `weights_only=True` es el default desde PyTorch 2.6, ahora es
   explícito y documentado).
   **Verificación:** toda la suite de tests de checkpoint/dataset (round-trip real en
   `test_scheduler.py`) sigue pasando sin cambios.
 - **B3. ✅ Corregido en Fase 10 (utilidad opcional, no integrada en el pipeline).** Min-max
   sensible a outliers; evaluar clip de percentiles (p1/p99) o *robust scaling* antes de
-  escalar (`src/modelo_itm/etl/normalize.py` ← `cmg2tensor/…/normalize.py`). **Aplicado:**
+  escalar (`src/fno_co2/etl/normalize.py` ← `cmg2tensor/…/normalize.py`). **Aplicado:**
   nueva `clip_percentiles(values, p_low=1.0, p_high=99.0)` en `etl/normalize.py` — recorta
   valores fuera del rango de percentiles (ignora `NaN` al calcular los límites). **NO se
   integra automáticamente** en `normalize_cubes_minmax*`/`normalize_series_minmax*`:
@@ -738,7 +761,7 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
   6 simulaciones distintas, el caché nunca supera 3 entradas tras acceder a todas; con el
   default (512), las 6 simulaciones caben sin evicción.
 - **B5. ✅ Corregido en Fase 10.** Tests desactualizados en `construir_histogramas_globales_por_capas`
-  (`src/modelo_itm/etl/histograms.py` ← `cmg2tensor/…/histograms.py`, detectado en la
+  (`src/fno_co2/etl/histograms.py` ← `cmg2tensor/…/histograms.py`, detectado en la
   verificación de equivalencia de la Fase A2.4, **confirmado preexistente** en el
   `cmg2tensor` original antes de la migración — no introducido por A2). La función añade
   deliberadamente una clave `_meta` al payload (paths de reportes, timestamps; consumida
@@ -761,16 +784,16 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
 
 ### Fase 6 — Correctitud crítica de datos y métricas (bloqueante) — [CÓDIGO DONE, DATOS PENDIENTES]
 - **C1** ✅: normalizar `test/` con stats globales de train. Archivos (**ya migrados en la
-  Parte A2**): `src/modelo_itm/etl/pipeline/parallel.py`, `src/modelo_itm/etl/cli.py`.
+  Parte A2**): `src/fno_co2/etl/pipeline/parallel.py`, `src/fno_co2/etl/cli.py`.
   `pipeline/serial.py` no requirió cambios (solo recibe `normalize` ya resuelto). Verificado
   con `tests/etl/test_c1_normalize_test_split.py` (sintético). **Pendiente:** regenerar
   `data/processed/test/` con datos reales (**⚠️ requiere confirmación**; sin datos ni GPU
   en esta sesión).
-- **C3** ✅: acumulación global de R²/RMSE. Archivos: `src/modelo_itm/training/metrics.py`,
+- **C3** ✅: acumulación global de R²/RMSE. Archivos: `src/fno_co2/training/metrics.py`,
   `training/loop.py` (`evaluate_epoch`, `main`). Verificado con `tests/unit/test_metrics.py`
   contra `sklearn.metrics.r2_score`.
 - **A4** ✅ (encontrado durante la verificación de C1, no en el B.0 original): import roto
-  bloqueaba todo el pipeline paralelo. `src/modelo_itm/etl/pipeline/parallel.py`.
+  bloqueaba todo el pipeline paralelo. `src/fno_co2/etl/pipeline/parallel.py`.
 - **Validación pendiente:** una corrida corta con datos reales que muestre `val_loss` en la
   misma escala que `train_loss` y R²/SF/VD coherentes (requiere Fase A2 de datos + GPU, no
   disponibles en esta sesión).
@@ -786,7 +809,7 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
 
 ### Fase 8 — Feature de incertidumbre (decisión de diseño) — [DONE]
 - **C2** ✅ Opción A aplicada (confirmada vía `AskUserQuestion`: dropout real, no flag de
-  aislamiento). Archivos: `src/modelo_itm/models/{fno,blocks}.py` (Dropout2d en ResBlock),
+  aislamiento). Archivos: `src/fno_co2/models/{fno,blocks}.py` (Dropout2d en ResBlock),
   `config.py` (`dropout_p`), `training/{loop,checkpoint}.py` (propagación + run_signature),
   `scripts/train.py` (`--dropout-p`), `CLAUDE.md` actualizado (arquitectura + tabla de
   hiperparámetros). `inference/uncertainty.py` no requirió cambios — ya estaba correctamente
@@ -795,8 +818,8 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
 ### Fase 9 — Buenas prácticas de entrenamiento — [DONE]
 - **M1** ✅ (scheduler + estado en checkpoint), **M2** ✅ (AMP), **M6** ✅ (guardas NaN/Inf),
   **M7** ✅ (param groups), **M5** ✅ (logging). Archivos:
-  `src/modelo_itm/training/{loop,checkpoint,optim}.py` (nuevo `optim.py`),
-  `src/modelo_itm/utils/logging.py` (nuevo), `src/modelo_itm/models/{fno,blocks}.py`
+  `src/fno_co2/training/{loop,checkpoint,optim}.py` (nuevo `optim.py`),
+  `src/fno_co2/utils/logging.py` (nuevo), `src/fno_co2/models/{fno,blocks}.py`
   (AMP en FFT), `config.py`, `scripts/train.py`.
 - **C4** ✅ (no planeado — descubierto al verificar M5 con un smoke test end-to-end):
   bug crítico de `in_c` en `models/fno.py` que bloqueaba **todo** entrenamiento real desde
@@ -827,8 +850,8 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
 |---|---|---|
 | `01-Modelo-ITM/pyproject.toml` | 1 | Fijar `requires-python` |
 | `01-Modelo-ITM/.venv/` | 1 | Nuevo, ignorado por git |
-| `01-Modelo-ITM/src/modelo_itm/**` | 2, 6–10 | Código migrado + correcciones |
-| `01-Modelo-ITM/src/modelo_itm/etl/**` | A2, 6, 10 | ETL migrado (`cmg2tensor` plegado) + correcciones C1/B3 |
+| `01-Modelo-ITM/src/fno_co2/**` | 2, 6–10 | Código migrado + correcciones |
+| `01-Modelo-ITM/src/fno_co2/etl/**` | A2, 6, 10 | ETL migrado (`cmg2tensor` plegado) + correcciones C1/B3 |
 | `01-Modelo-ITM/scripts/train.py` | 2 | Nuevo entrypoint CLI |
 | `01-Modelo-ITM/scripts/etl/**` | A2 | Scripts ETL migrados (`make_split`, `etl_mysql`, …) |
 | `01-Modelo-ITM/sql/**` | A2 | DDL MySQL/SQL Server migrado |
@@ -849,7 +872,7 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
 
 - **Orden obligatorio:** la Parte B referencia módulos que crean las Partes A y A2. No
   iniciar correcciones antes de completar ambas migraciones y verificar equivalencia. En
-  particular, C1 y B3 operan sobre `src/modelo_itm/etl/`, que **no existe** hasta la Parte A2.
+  particular, C1 y B3 operan sobre `src/fno_co2/etl/`, que **no existe** hasta la Parte A2.
 - **Sin GPU/datos en esta sesión:** la equivalencia numérica de la Fase 2 y la validación de
   la Fase 6 requieren acceso a datos procesados y, idealmente, GPU. Documentar si quedan
   pendientes.
@@ -880,8 +903,8 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
 
 **Parte A — Migración:**
 - [ ] `python --version` en `01-Modelo-ITM/.venv` reporta `3.12.x`.
-- [ ] `pip install -e ".[dev]"` instala `modelo_itm` sin errores.
-- [ ] Todo el código de `train_dataset.py` tiene destino 1:1 en `src/modelo_itm/` según el
+- [ ] `pip install -e ".[dev]"` instala `fno_co2` sin errores.
+- [ ] Todo el código de `train_dataset.py` tiene destino 1:1 en `src/fno_co2/` según el
       Mapa de módulos, sin funciones perdidas.
 - [ ] `python scripts/train.py --help` expone los mismos flags que el script original.
 - [ ] `pytest tests/unit -v` pasa (incluye los 3 tests mínimos de la Fase 2b).
@@ -892,8 +915,8 @@ se ejecuta desde el paquete único `modelo_itm`; ya no hay dependencia de la rut
       `specs/` (se conserva como referencia por decisión del usuario).
 
 **Parte A2 — Migración del ETL:**
-- [ ] `python -c "import modelo_itm.etl"` no falla.
-- [ ] `python -m modelo_itm.etl --help` expone los mismos flags que `python -m cmg2tensor`.
+- [ ] `python -c "import fno_co2.etl"` no falla.
+- [ ] `python -m fno_co2.etl --help` expone los mismos flags que `python -m cmg2tensor`.
 - [ ] `grep -rn "import cmg2tensor\|from cmg2tensor" src/ scripts/ tests/` sale vacío.
 - [ ] `pytest tests/etl -m "not slow" -v` pasa.
 - [ ] `pyproject.toml` declara las deps del ETL; `pip install -e ".[dev]"` reinstala sin
