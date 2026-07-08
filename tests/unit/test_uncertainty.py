@@ -3,6 +3,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from fno_co2.config import Config
 from fno_co2.inference.uncertainty import (
+    _quantile_capped,
     calibrate_uncertainty,
     default_uncertainty_calibration,
     model_has_dropout,
@@ -59,6 +60,22 @@ def test_predict_with_uncertainty_single_pass_returns_zero_std():
 
     _, pred_std = predict_with_uncertainty(model, x, d, inj, passes=1)
     assert torch.all(pred_std == 0.0)
+
+
+def test_quantile_capped_matches_torch_on_small_tensor():
+    """Para tensores pequenos _quantile_capped debe coincidir con torch.quantile."""
+    t = torch.randn(10_000)
+    assert abs(_quantile_capped(t, 0.95) - float(torch.quantile(t, 0.95))) < 1e-5
+
+
+def test_quantile_capped_handles_oversized_tensor():
+    """Regresion del crash real (época 10): torch.quantile falla con >2^24 elementos.
+    _quantile_capped debe submuestrear, NO crashear, y estimar el q95 con precision
+    razonable. Aqui se usa un umbral chico para no reservar cientos de MB en el test."""
+    n = 5_000_000
+    t = torch.rand(n)  # U(0,1) -> q95 verdadero ~0.95
+    got = _quantile_capped(t, 0.95, max_elems=100_000)
+    assert 0.90 < got < 0.99, f"q95 estimado fuera de rango: {got}"
 
 
 def test_calibrate_uncertainty_produces_nondefault_alpha_with_dropout():
