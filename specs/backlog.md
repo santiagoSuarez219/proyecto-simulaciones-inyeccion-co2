@@ -57,6 +57,30 @@
 
 ---
 
+## ✅ UNC-quantile — `torch.quantile` reventaba la calibración sobre el val completo
+
+- **Estado:** RESUELTO (2026-07-07). Crasheó la primera corrida real en la época 10.
+- **Síntoma:** `RuntimeError: quantile() input tensor is too large` en
+  `calibrate_uncertainty` (`inference/uncertainty.py`), al hacer
+  `torch.quantile(sf_abs_error_tensor, 0.95)`.
+- **Causa raíz:** `torch.quantile` falla con más de ~2^24 (16.7M) elementos.
+  `calibrate_uncertainty` acumula el error absoluto de **todo** el val set
+  (3977 × 61 × 50 × 50 ≈ 606M valores) y luego calcula el cuantil → excede el límite.
+  Solo aparece en una época de incertidumbre real con el val completo (nunca ejercida
+  antes de tener GPU + datos).
+- **Fix aplicado:** nuevo `_quantile_capped(values, q, max_elems=2^24-1)` que submuestrea
+  aleatoriamente (determinista, con reemplazo, memoria acotada) si el tensor es enorme;
+  usado en los 4 call sites de `calibrate_uncertainty` y `summarize_uncertainty`.
+- **Impacto en la corrida:** las 9 épocas previas quedaron OK (`best.pt` = época 6,
+  val_loss 0.0324, R² 0.99/0.90). C1 y M2/bf16 validados. Tras el fix, la corrida se
+  reanudó y completó (early stopping en la época 14, incertidumbre de la época 10
+  capturada: sf_unc=0.58, no trivial → C2 validado).
+- **Verificación:** `tests/unit/test_uncertainty.py` — `_quantile_capped` coincide con
+  `torch.quantile` en tensores pequeños y estima bien el q95 en uno de 5M sin crashear.
+  Suite: 116 passed.
+
+---
+
 ## Hardware / entorno de entrenamiento (notas del preflight, 2026-07-06)
 
 - **`data/` es un symlink a disco externo** (`/media/.../DATA3/...`). `docker/run.sh` monta
