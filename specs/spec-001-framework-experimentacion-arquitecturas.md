@@ -1,13 +1,16 @@
-# spec-001 — Framework de experimentación y comparación de arquitecturas [TESTING]
+# spec-001 — Framework de experimentación y comparación de arquitecturas [DONE]
 
 > **Autor:** revisión de código (rol `@architect`)
 > **Fecha:** 2026-07-02
-> **Estado:** `[TESTING]` — Fases 0-6 implementadas en `feature/framework-experimentacion-arquitecturas`
+> **Estado:** `[DONE]` — Fases 0-6 implementadas en `feature/framework-experimentacion-arquitecturas`
 > (2026-07-10): línea base entrenada y taggeada (`baseline-v1` en `ce9cbfa`, checkpoint
 > respaldado fuera del árbol de trabajo), CLI reproducible + YAML + registry de variantes +
 > runner multi-seed + agregación estadística, todos con test unitario y verificación manual
 > real. Fase 6 (rigor de mínimo 3 seeds) es disciplina de proceso, reforzada en código por
-> `compute_verdict()`. Pendiente: `@reviewer` antes de marcar `[DONE]`, y la primera variante
+> `compute_verdict()`. (2026-07-14): `@reviewer` aprobó el framework (8/8 criterios de
+> aceptación cubiertos, 124 tests pasando) — ver hallazgo 🟠 registrado como deuda técnica
+> `EXP-baseline-n1` en `specs/backlog.md` (la línea base tiene n=1 seed, pendiente
+> re-entrenar a ≥3 antes de reportar cualquier comparación). Pendiente: la primera variante
 > real (spec-002/003) para ejercitar el framework end-to-end con más de un experimento.
 > **Depende de:** `spec-000` (migración + correcciones), completado en `[DONE]` (cierre
 > 2026-07-08, C1/M2/M3 verificados en GPU real), fusionado a `main`/`development` en el
