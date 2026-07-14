@@ -1,4 +1,4 @@
-# spec-001 — Entorno de trabajo general en la workstation remota [IN PROGRESS]
+# spec-005 — Entorno de trabajo general en la workstation remota [DONE]
 
 > **Autor:** revisión de código (rol `@architect`)
 > **Fecha:** 2026-07-04
@@ -16,10 +16,11 @@
 >
 > **⚠️ Nota de numeración:** este archivo vive en `01-Modelo-ITM/specs/` únicamente para
 > poder versionarlo en git y traerlo a la workstation (no existe todavía un repo propio a
-> nivel de `09-Proyecto-Deep-Learning/`). Su alcance **no** es `fno_co2` — coincide en el
-> número `001` con `spec-001-framework-experimentacion-arquitecturas.md` (ese sí específico
-> de `fno_co2`) por accidente de numeración, no por relación entre ambos specs. Distinguir
-> por el slug del nombre de archivo, no por el número.
+> nivel de `09-Proyecto-Deep-Learning/`). Su alcance **no** es `fno_co2`: es un spec de
+> infraestructura transversal a la workstation, sin relación con la cadena de specs de
+> experimentación (`spec-001`–`spec-004`). Se numera `005` por orden de creación; antes
+> compartía el número `001` con `spec-001-framework-experimentacion-arquitecturas.md`
+> (renumerado para eliminar la colisión).
 
 ---
 
@@ -297,7 +298,7 @@ cd ~/proyectos/_docker-base/base-cuda
 ```bash
 # 2. Escribir el Dockerfile de la base compartida
 cat > Dockerfile << 'EOF'
-# Imagen base compartida GPU (IA/ML/DL/LLM/NLP) -- spec-001 Fase 4.
+# Imagen base compartida GPU (IA/ML/DL/LLM/NLP) -- spec-005 Fase 4.
 # Generica a proposito: SIN usuario no-root (eso lo agrega cada proyecto en su propio
 # Dockerfile, ver docker/Dockerfile de fno_co2) y SIN dependencias de un proyecto
 # especifico (sin torch/transformers/etc.).
@@ -328,6 +329,24 @@ docker build -t base-cuda:py312 ~/proyectos/_docker-base/base-cuda
 # 4. Verificar: CUDA, Python 3.12 y herramientas presentes, sin torch (a proposito)
 docker run --rm --gpus all base-cuda:py312 bash -c "nvidia-smi && python3 --version && git --version && tmux -V"
 ```
+
+**Ejecutado en la workstation (2026-07-04) — ajustes respecto al texto original:**
+
+- El tag `nvidia/cuda:12.4.1-cudnn-runtime-ubuntu24.04` (versión original de este spec)
+  **no existe** en Docker Hub — CUDA 12.4.1 solo publica variantes `ubuntu22.04`/`ubuntu20.04`.
+  Decisión del usuario: mantener `ubuntu24.04` y subir a la versión más cercana que sí la
+  tiene, `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04` (el driver de la workstation,
+  580.159.03, soporta hasta CUDA 13.0, así que no hay problema de compatibilidad).
+- Ubuntu 24.04 aplica PEP 668 (`externally-managed-environment`): `pip install` a nivel de
+  sistema falla sin más por defecto — algo que no ocurría con la imagen `pytorch/pytorch`
+  usada previamente. Fix aplicado en `base-cuda/Dockerfile`: `ENV PIP_BREAK_SYSTEM_PACKAGES=1`
+  (equivalente a `pip install --break-system-packages`, aceptable porque el contenedor es
+  un entorno descartable dedicado a un solo propósito, no un sistema compartido).
+- Verificado: `base-cuda:py312` construida (CUDA 12.6.3, Python 3.12.3, git 2.43.0, tmux 3.4,
+  sin `torch`). `fno-co2:dev` reconstruida sobre esta base — `docker history` confirma las
+  capas heredadas de `nvidia/cuda:12.6.3-...-ubuntu24.04`, y
+  `torch.cuda.is_available()` → `True` (`torch 2.12.1+cu130`) dentro del contenedor del
+  proyecto.
 
 ### Comandos exactos — migrar `fno_co2` para partir de la base compartida
 
@@ -362,9 +381,18 @@ necesite — ver nota de alcance arriba.
 
 ---
 
-## Fase 5 — Convención de puertos y nombres de contenedor
+## Fase 5 — Convención de puertos y nombres de contenedor [DONE]
 
 **Dónde:** `docs/servidor.md` (Fase 7).
+
+**Nota de ubicación (ajusta el texto original):** la Fase 3 descartó replicar la
+estructura `09-Proyecto-Deep-Learning/` en la workstation (solo existe
+`~/proyectos/<proyecto>/` y `~/proyectos/_docker-base/`), así que no hay una carpeta de
+"raíz del ecosistema" literal donde colgar `docs/servidor.md`. Decisión del usuario
+(2026-07-04): vive en `~/proyectos/_docs/servidor.md` — carpeta hermana a
+`_docker-base/`, mismo criterio (suelta, sin versionar en git, documenta la máquina no
+un proyecto). El archivo ya se creó con esta sección; las demás secciones de la Fase 7
+quedan pendientes y se agregan incrementalmente al mismo archivo.
 
 1. Con múltiples proyectos corriendo contenedores simultáneamente en la misma máquina,
    puertos como `8888` (Jupyter) o `6006` (TensorBoard) van a colisionar si dos proyectos
@@ -375,12 +403,19 @@ necesite — ver nota de alcance arriba.
    `fno_co2`; generalizar a `<slug-proyecto>-<sesion>`) para que `docker ps` sea legible
    con varios proyectos activos a la vez.
 
+**Ejecutado (2026-07-04):** `~/proyectos/_docs/servidor.md` creado con la tabla
+`proyecto | slug | prefijo contenedor | puerto Jupyter | puerto TensorBoard | notas`.
+`fno_co2` registrado con prefijo `fno-<sesion>` (ya implementado en `docker/run.sh`,
+sin cambios de código necesarios) y puertos `8888`/`6006` reservados preventivamente
+(el proyecto no expone Jupyter/TensorBoard hoy). Próximo proyecto → `8889`/`6007`.
+
 **Verificación:** `docs/servidor.md` tiene una tabla `proyecto | puertos reservados |
-prefijo de contenedor`, actualizada cada vez que se agrega un proyecto nuevo.
+prefijo de contenedor`, actualizada cada vez que se agrega un proyecto nuevo. —
+Cumplido: tabla creada en `~/proyectos/_docs/servidor.md`.
 
 ---
 
-## Fase 6 — Gestión de GPU compartida entre proyectos y usuarios
+## Fase 6 — Gestión de GPU compartida entre proyectos y usuarios [DONE]
 
 1. Antes de lanzar cualquier contenedor con `--gpus device=<N>`, correr `nvidia-smi` y
    revisar procesos activos de otros usuarios en esa GPU.
@@ -392,12 +427,21 @@ prefijo de contenedor`, actualizada cada vez que se agrega un proyecto nuevo.
    necesario) MPS o time-slicing de NVIDIA solo si la contención real por GPU aparece en
    la práctica — no instalar preventivamente sin un problema concreto que lo justifique.
 
+**Ejecutado (2026-07-04):** inventario confirmado — 1 sola GPU física (`GPU 0: NVIDIA
+RTX 6000 Ada Generation`, 49140 MiB), sin procesos de cómputo activos al momento de
+verificar. Otros usuarios activos en la máquina (`who`): `imagenesmedicas`, `nlp`, además
+de `sosagro4c` — mismo patrón de asignación por grupo que los discos `DATA1`–`DATA4`
+(Fase 2). Tabla de reserva manual creada en `~/proyectos/_docs/servidor.md`
+(sección "Reserva de GPU compartida"), vacía por ahora (sin corridas largas activas).
+MPS/time-slicing: evaluado, no instalado — no hay contención real hoy que lo justifique.
+
 **Verificación:** no automatizable — revisión de proceso; se aplica documentando cada
-corrida larga en `docs/servidor.md`.
+corrida larga en `docs/servidor.md`. — Tabla y proceso documentados en
+`~/proyectos/_docs/servidor.md`.
 
 ---
 
-## Fase 7 — Persistencia de procesos y documentación del servidor
+## Fase 7 — Persistencia de procesos y documentación del servidor [DONE]
 
 1. Convención ya validada en `fno_co2`: corridas largas en modo `docker run -d` +
    `tmux` dentro del contenedor, reconexión vía `docker exec -it <nombre> tmux attach`.
@@ -410,8 +454,21 @@ corrida larga en `docs/servidor.md`.
    reserva de GPU (Fase 6), y changelog de cambios al entorno base (cuándo se actualizó
    `base-cuda`, por qué).
 
+**Nota de ubicación (ver también Fase 5):** la Fase 3 descartó replicar
+`09-Proyecto-Deep-Learning/` en la workstation, así que el archivo vive en
+`~/proyectos/_docs/servidor.md` (decisión del usuario, misma carpeta ya usada para la
+sección de la Fase 5).
+
+**Ejecutado (2026-07-04):** `~/proyectos/_docs/servidor.md` completado con las 5
+secciones — estado inicial, almacenamiento, imágenes base, puertos/contenedores, reserva
+de GPU — más un changelog. Contenido verificado contra el estado real del sistema en el
+momento de escribirlo (no copiado a ciegas del spec): `lsb_release`, `docker --version`,
+`nvidia-smi`, `nvidia-ctk --version`, `lsblk`/`df -h` de todos los discos, y
+`docker images` de `base-cuda:py312`/`fno-co2:dev`.
+
 **Verificación:** `docs/servidor.md` existe y tiene las 5 secciones; se actualiza (no se
-sobrescribe) cada vez que se agrega un proyecto o cambia la imagen base.
+sobrescribe) cada vez que se agrega un proyecto o cambia la imagen base. — Cumplido en
+`~/proyectos/_docs/servidor.md`.
 
 ---
 
@@ -474,12 +531,17 @@ sobrescribe) cada vez que se agrega un proyecto o cambia la imagen base.
       sigue pendiente, reportado al administrador.
 - [x] `~/proyectos/` existe con la convención un-subdirectorio-por-proyecto (Fase 3) —
       `fno_co2` clonado en `~/proyectos/proyecto-simulaciones-inyeccion-co2/`.
-- [ ] Al menos la imagen base `base-cuda:py312` construida y utilizable por
-      `FROM` desde un `Dockerfile` de proyecto (Fase 4) — comandos listos, **pendiente de
-      ejecutar y verificar en la workstation**.
+- [x] Al menos la imagen base `base-cuda:py312` construida y utilizable por
+      `FROM` desde un `Dockerfile` de proyecto (Fase 4) — construida y verificada en la
+      workstation (2026-07-04); `fno-co2:dev` reconstruida sobre ella con
+      `torch.cuda.is_available() == True`. Ver ajuste de tag CUDA y fix de PEP 668 en la
+      Fase 4.
 - [x] Decisión explícita del usuario registrada sobre si `_docker-base/` se versiona en
       git (Riesgos) — resuelto: carpeta suelta, sin git. Alcance mobile sigue pendiente
       (no bloquea `base-cuda`).
-- [ ] `docs/servidor.md` existe en la raíz del ecosistema con las 5 secciones de la Fase 7.
-- [ ] Convención de puertos/nombres de contenedor documentada antes de correr un segundo
-      proyecto con Docker en la misma máquina (Fase 5).
+- [x] `docs/servidor.md` existe en la raíz del ecosistema con las 5 secciones de la
+      Fase 7 — en `~/proyectos/_docs/servidor.md` (ver nota de ubicación en Fase 5/7),
+      completado y verificado contra el sistema real (2026-07-04).
+- [x] Convención de puertos/nombres de contenedor documentada antes de correr un segundo
+      proyecto con Docker en la misma máquina (Fase 5) — tabla creada en
+      `~/proyectos/_docs/servidor.md` (2026-07-04).

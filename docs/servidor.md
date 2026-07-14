@@ -1,7 +1,7 @@
 # Servidor / workstation — registro de entorno
 
 > Documenta la **máquina compartida**, no un proyecto individual. Se actualiza (no se
-> sobrescribe) según `specs/spec-001-entorno-trabajo-servidor.md`.
+> sobrescribe) según `specs/spec-005-entorno-trabajo-servidor.md`.
 
 ---
 
@@ -31,7 +31,7 @@
 
 **Hallazgo clave (Fase 2):** el patrón `DATA1`–`DATA4` indica que los 4 discos de 11T de
 esta workstation están asignados **por grupo/usuario**, no son espacio de uso libre
-general. Ver Fase 2 de `specs/spec-001-entorno-trabajo-servidor.md` para el
+general. Ver Fase 2 de `specs/spec-005-entorno-trabajo-servidor.md` para el
 procedimiento completo de verificación (inventario con `lsblk`, `blkid`, montaje
 read-only de comprobación, reformateo).
 
@@ -59,7 +59,7 @@ al administrador de la workstation antes de intentar cualquier reparación.
 (`ayax911/federal-learning`, experimentos `exp07` a `exp14`, corridos entre 4 y 9 días
 atrás respecto a esta fecha). Confirma que la GPU y el host son realmente compartidos —
 la Fase 5 (convención de puertos/nombres) y Fase 6 (reserva de GPU) de
-`spec-001-entorno-trabajo-servidor.md` aplican en la práctica, no son solo teóricas.
+`spec-005-entorno-trabajo-servidor.md` aplican en la práctica, no son solo teóricas.
 
 En el momento de esta verificación (2026-07-04 14:49), la GPU no tenía procesos de
 cómputo activos (`No running processes found` en `nvidia-smi` dentro del contenedor de
