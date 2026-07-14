@@ -1,9 +1,17 @@
-# spec-001 — Framework de experimentación y comparación de arquitecturas [IN PROGRESS]
+# spec-001 — Framework de experimentación y comparación de arquitecturas [TESTING]
 
 > **Autor:** revisión de código (rol `@architect`)
 > **Fecha:** 2026-07-02
-> **Depende de:** `spec-000` (migración + correcciones), completado en `[TESTING]`,
-> fusionado a `main`/`development` en el commit `9dcf4bd` (rename `modelo_itm` → `fno_co2`).
+> **Estado:** `[TESTING]` — Fases 0-6 implementadas en `feature/framework-experimentacion-arquitecturas`
+> (2026-07-10): línea base entrenada y taggeada (`baseline-v1` en `ce9cbfa`, checkpoint
+> respaldado fuera del árbol de trabajo), CLI reproducible + YAML + registry de variantes +
+> runner multi-seed + agregación estadística, todos con test unitario y verificación manual
+> real. Fase 6 (rigor de mínimo 3 seeds) es disciplina de proceso, reforzada en código por
+> `compute_verdict()`. Pendiente: `@reviewer` antes de marcar `[DONE]`, y la primera variante
+> real (spec-002/003) para ejercitar el framework end-to-end con más de un experimento.
+> **Depende de:** `spec-000` (migración + correcciones), completado en `[DONE]` (cierre
+> 2026-07-08, C1/M2/M3 verificados en GPU real), fusionado a `main`/`development` en el
+> commit `9dcf4bd` (rename `modelo_itm` → `fno_co2`).
 > **Objetivo:** el modelo actual (`PhysicalFNOArchitecture`, paquete `fno_co2`) queda
 > fijado como **línea base**. Este spec define el proceso — no una arquitectura nueva
 > específica — para modificar la arquitectura y comparar variantes contra la línea base
@@ -39,8 +47,12 @@ paro, mismas métricas calculadas de la misma forma.
 
 ## Fase 0 — Congelar la línea base
 
-> **⚠️ Requiere una corrida de entrenamiento real completa (GPU + datos procesados)**,
-> pendiente desde `spec-000` (C1/M2/M3). Esta fase no se ejecuta con datos sintéticos.
+> **⚠️ Requiere una corrida de entrenamiento real completa (GPU + datos procesados).**
+> Esta fase no se ejecuta con datos sintéticos. La precondición que la bloqueaba (C1/M2/M3
+> de `spec-000`) **ya está resuelta**: se verificó en GPU real (RTX 6000 Ada) al cerrar
+> `spec-000` el 2026-07-08. Falta únicamente correr la línea base con la **config default de
+> `Config()`** — la corrida de verificación de `spec-000` usó `batch 16 / lr 1.6e-3`, que no
+> son los defaults, por lo que no sirve como línea base congelada de este framework.
 
 1. Confirmar que `data/processed/{train,test}/` está regenerado con la corrección **C1**
    aplicada (test normalizado con stats de train) antes de correr la línea base — si no,
@@ -223,9 +235,10 @@ esperado) y sí detecta diferencia con datos claramente separados.
 | `scripts/run_experiment.py` | 4 | Nuevo — runner multi-seed |
 | `scripts/aggregate_experiments.py` | 5 | Nuevo — agregación + comparación estadística |
 | `docs/experiments.md` | 5, 6 | Nuevo — registro append-only de experimentos |
-| `pyproject.toml` | 2 | Añade `pyyaml` (**confirmar antes de instalar**) |
-| `tests/unit/test_config_cli.py`, `test_config_yaml.py`, `test_registry.py`, `test_aggregate.py` | 1, 2, 3, 5 | Nuevos |
-| Git: tag `baseline-v1`, ramas `exp/<variante>` | 0, 3 | **⚠️ requiere confirmación explícita** |
+| `pyproject.toml` | 2 | Añade `pyyaml` — confirmado por el usuario 2026-07-10 |
+| `tests/unit/test_config_cli.py`, `test_config_yaml.py`, `test_registry.py`, `test_aggregate.py`, `conftest.py` | 1, 2, 3, 5 | Nuevos |
+| `.gitignore` | — | Extendido: `outputs/<experiment_name>/` (seeds, manifest) ignorado igual que el resto de `outputs/` |
+| Git: tag `baseline-v1`, ramas `exp/<variante>` | 0, 3 | Tag creado 2026-07-09 (commit `ce9cbfa`, confirmado explícitamente). Ramas `exp/<variante>` pendientes hasta spec-002/003 |
 
 ---
 
@@ -247,31 +260,49 @@ esperado) y sí detecta diferencia con datos claramente separados.
   comparación queda inválida (no es la arquitectura lo que cambió, son los datos). No hay
   guarda automática para esto todavía — se documenta como responsabilidad del proceso
   (Fase 6) hasta que se justifique automatizarlo.
-- **`pyyaml` es una dependencia nueva** (Fase 2) — mencionar y confirmar antes de
-  instalar, según §Dependencias de `CLAUDE.md`.
-- **`docs/` está en `.gitignore`** (decisión previa del usuario): `docs/experiments.md`
-  vivirá localmente, no en el repo remoto. Si se quiere que el registro de experimentos
-  sea visible en GitHub (relevante para el paper/colaboradores), esto debe reconsiderarse
-  antes de la Fase 5 — **fuera de alcance de este spec, requiere decisión del usuario**.
+- **`pyyaml` es una dependencia nueva** (Fase 2) — mencionada y confirmada por el usuario
+  antes de instalar (2026-07-10); ya estaba presente en la imagen Docker (v6.0.3) pero sin
+  declarar en `pyproject.toml`, se agregó a `[project.dependencies]`.
+- ~~`docs/` está en `.gitignore`~~ — **corregido**: verificado contra el repo real
+  (2026-07-10), `docs/` **no** está gitignoreado (`git ls-files docs/` lo confirma
+  tracked); la nota original del spec era incorrecta. `docs/experiments.md` vive
+  versionado en `development` como el resto de `docs/` (se excluye de `main` vía
+  `scripts/promote-to-main.sh`, no vía `.gitignore`) — sí es visible para
+  colaboradores en el repo remoto sin necesidad de reconsiderar nada.
+- **`.gitignore` extendido para la nueva estructura de outputs:** `outputs/<experiment_name>/`
+  (incluye `seed_<seed>/`, `run_manifest.json`, checkpoints, logs) se ignora igual que el
+  resto de `outputs/` — regla `outputs/*/` con negación explícita de `checkpoints/`,
+  `logs/`, `figures/` para no romper las reglas granulares ya existentes de esos tres
+  subdirectorios.
 
 ---
 
 ## 3. Criterios de aceptación
 
-- [ ] `--seed`, `--experiment-name`, `--model-variant`, `--config` funcionan en
+- [x] `--seed`, `--experiment-name`, `--model-variant`, `--config` funcionan en
       `scripts/train.py` sin romper invocaciones existentes (flags nuevos con default
-      `None`/valor actual).
-- [ ] `configs/experiments/baseline.yaml` existe y `load_config_from_yaml` lo carga
-      produciendo un `Config()` idéntico a los defaults del dataclass.
-- [ ] `build_model(cfg)` despacha correctamente `"fno_baseline"` →
-      `PhysicalFNOArchitecture`; variante desconocida falla explícito.
-- [ ] `scripts/run_experiment.py` corre N seeds de una config y produce
-      `run_manifest.json` + un `metrics_history.json` por seed.
-- [ ] `scripts/aggregate_experiments.py` calcula mean±std sobre seeds y un test
-      estadístico apropiado para n pequeño, sin ocultar los valores crudos por seed.
-- [ ] `docs/experiments.md` tiene la fila `baseline` completa (Fase 0) antes de registrar
-      cualquier variante.
-- [ ] Toda la suite existente (`pytest tests/ -m "not slow"`) sigue pasando — este spec
-      no debe romper el comportamiento de `spec-000`.
-- [ ] Ninguna variante se reporta como "mejor" en `docs/experiments.md` con menos de 3
-      seeds, ni sin el criterio de éxito predefinido antes de correrla (Fase 6).
+      `None`/valor actual). Verificado en `tests/unit/test_config_cli.py`.
+- [x] `configs/experiments/baseline.yaml` existe y `load_config_from_yaml` lo carga
+      produciendo un `Config()` idéntico a los defaults del dataclass. Verificado en
+      `tests/unit/test_config_yaml.py::test_baseline_yaml_matches_config_defaults`.
+- [x] `build_model(cfg)` despacha correctamente `"fno_baseline"` →
+      `PhysicalFNOArchitecture`; variante desconocida falla explícito. Verificado en
+      `tests/unit/test_registry.py`.
+- [x] `scripts/run_experiment.py` corre N seeds de una config y produce
+      `run_manifest.json` + un `metrics_history.json` por seed. Verificado con una corrida
+      real (2 seeds, 1 época, `--overfit-sample-idx 0`, 2026-07-10; artefactos de la
+      prueba eliminados tras verificar).
+- [x] `scripts/aggregate_experiments.py` calcula mean±std sobre seeds y un test
+      estadístico apropiado para n pequeño (Wilcoxon pareado si las seeds coinciden
+      exactamente entre grupos, si no Mann-Whitney U), sin ocultar los valores crudos por
+      seed. Verificado en `tests/unit/test_aggregate.py` y con una corrida real end-to-end.
+- [x] `docs/experiments.md` tiene la fila `baseline` completa (Fase 0) antes de registrar
+      cualquier variante — generada corriendo `aggregate_experiments.py` sobre la corrida
+      real de Fase 0 (seed 42, best en epoch 12, `val_loss=0.012696`).
+- [x] Toda la suite existente (`pytest tests/ -m "not slow"`) sigue pasando — 124 passed,
+      11 deselected (2026-07-10, dentro del contenedor `fno-co2:dev`).
+- [x] Ninguna variante se reporta como "mejor" en `docs/experiments.md` con menos de 3
+      seeds, ni sin el criterio de éxito predefinido antes de correrla (Fase 6) —
+      `compute_verdict()` fuerza el texto "inconcluso — n=<k> seeds" cuando `n_seeds < 3`,
+      sin importar el resultado de la comparación; verificado en
+      `test_aggregate.py::test_compute_verdict_inconclusive_below_min_seeds`.

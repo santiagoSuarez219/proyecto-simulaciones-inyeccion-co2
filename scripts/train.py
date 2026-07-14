@@ -2,7 +2,7 @@
 import argparse
 from pathlib import Path
 
-from fno_co2.config import Config
+from fno_co2.config import Config, load_config_from_yaml
 from fno_co2.training.loop import main
 
 
@@ -31,6 +31,21 @@ def build_parser():
     p.add_argument("--persistent-workers", type=str_to_bool, default=None, help="Usar persistent workers")
     p.add_argument("--progress-interval", type=int, default=None, help="Intervalo de progreso en batches")
     p.add_argument("--device", default=None, help="Dispositivo: cuda, cpu, auto, gpu")
+    p.add_argument("--seed", type=int, default=None, help="Semilla aleatoria para reproducibilidad")
+    p.add_argument(
+        "--config", default=None,
+        help="Ruta a un YAML de Config (ver configs/experiments/); los flags CLI explícitos "
+             "tienen prioridad sobre los valores del archivo",
+    )
+    p.add_argument(
+        "--experiment-name", default=None,
+        help="Nombre del experimento (default en Config: 'baseline'). Si se pasa explícitamente "
+             "y no se pasa --output-dir, deriva outputs/<experiment_name>/seed_<seed>/",
+    )
+    p.add_argument(
+        "--model-variant", default=None,
+        help="Variante de arquitectura a despachar vía build_model (default: 'fno_baseline')",
+    )
     p.add_argument("--use-amp", type=str_to_bool, default=None, help="Mixed precision (AMP) — solo activo en CUDA")
     p.add_argument(
         "--deterministic", type=str_to_bool, default=None,
@@ -55,16 +70,34 @@ def build_parser():
     return p
 
 
-if __name__ == "__main__":
-    parser = build_parser()
-    args = parser.parse_args()
+def resolve_config(args: argparse.Namespace) -> Config:
+    """Ensambla el `Config` efectivo de una corrida: YAML (`--config`, opcional) como base,
+    luego overrides de flags CLI explícitos (siempre con prioridad sobre el YAML), y por
+    último la derivación de `output_dir` de la Fase 1 del spec-001 cuando corresponde."""
+    cfg = load_config_from_yaml(args.config) if args.config else Config()
 
-    cfg = Config()
+    experiment_name_explicit = args.experiment_name is not None
+    output_dir_explicit = args.output_dir is not None
+
     for key, value in vars(args).items():
-        if value is not None:
-            setattr(cfg, key, value)
+        if key == "config" or value is None:
+            continue
+        setattr(cfg, key, value)
 
     if cfg.lr_scheduler is not None and cfg.lr_scheduler.lower() == "none":
         cfg.lr_scheduler = None
 
+    # Fase 1: un experiment_name explícito deriva el output_dir por seed, para que dos
+    # corridas del mismo experimento con seeds distintas nunca colisionen. Si el usuario
+    # también pasó --output-dir explícito, ese valor manda (no se pisa).
+    if experiment_name_explicit and not output_dir_explicit:
+        cfg.output_dir = f"outputs/{cfg.experiment_name}/seed_{cfg.seed}"
+
+    return cfg
+
+
+if __name__ == "__main__":
+    parser = build_parser()
+    args = parser.parse_args()
+    cfg = resolve_config(args)
     main(cfg)

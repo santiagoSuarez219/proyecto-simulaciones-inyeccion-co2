@@ -81,6 +81,32 @@
 
 ---
 
+## 🔲 EXP-baseline-n1 — Línea base congelada con n=1 seed (contradice Fase 6 de spec-001)
+
+- **Estado:** PENDIENTE. Detectado por `@reviewer` en la revisión de
+  `spec-001-framework-experimentacion-arquitecturas.md` previa a `[DONE]` (2026-07-14).
+- **Origen:** spec-001, Fase 0 (congelar línea base) vs. Fase 6, punto 1 (*"Mínimo 3 seeds
+  por variante, línea base incluida, antes de reportar cualquier comparación"*).
+- **Síntoma:** `docs/experiments.md` registra la fila `baseline` con una sola corrida
+  (`seed 42`, best en epoch 12, `val_loss=0.012696`). El propio spec que introduce esta
+  regla no la cumple para su propia línea base.
+- **Impacto técnico:** en `scripts/aggregate_experiments.py::compute_verdict`, un grupo
+  con n=1 tiene `std=0`, degenerando el intervalo `mean±std` de la baseline a un punto.
+  Esto debilita el criterio de solapamiento de rangos (Fase 6, punto 2) que decide si una
+  variante futura "supera" o no la línea base — cualquier variante con media distinta a la
+  baseline parecería no solaparse, aunque la varianza real de la baseline (desconocida con
+  n=1) pudiera ser comparable.
+- **Fix pendiente:** re-entrenar la línea base (`configs/experiments/baseline.yaml`) con
+  al menos 2 seeds adicionales (p. ej. `43, 44`) usando `scripts/run_experiment.py`, y
+  re-agregar con `scripts/aggregate_experiments.py` antes de reportar la primera
+  comparación real (spec-002/003) en `docs/experiments.md`.
+- **No bloquea** el cierre `[DONE]` de spec-001 en sí (el framework no ha reportado
+  ninguna comparación todavía; los 8 criterios de aceptación del spec están cubiertos),
+  pero **sí bloquea** cualquier veredicto de "supera / no supera la línea base" hasta
+  resolverse.
+
+---
+
 ## Hardware / entorno de entrenamiento (notas del preflight, 2026-07-06)
 
 - **`data/` es un symlink a disco externo** (`/media/.../DATA3/...`). `docker/run.sh` monta

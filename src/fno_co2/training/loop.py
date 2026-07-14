@@ -15,7 +15,7 @@ from fno_co2.inference.uncertainty import (
     predict_with_uncertainty,
     summarize_uncertainty,
 )
-from fno_co2.models.fno import PhysicalFNOArchitecture
+from fno_co2.models.registry import build_model
 from fno_co2.training.checkpoint import (
     build_run_signature,
     save_training_checkpoint,
@@ -236,15 +236,7 @@ def main(cfg: Config):
         len(train_ds), len(val_ds), train_num_workers, val_num_workers,
     )
 
-    model = PhysicalFNOArchitecture(
-        time_steps=cfg.time_steps,
-        in_c=5,
-        h_dim=cfg.hidden_dim,
-        modes=cfg.spectral_modes,
-        cond_dim=128,
-        dropout_p=cfg.dropout_p,
-        use_group_norm=cfg.use_group_norm,
-    ).to(device)
+    model = build_model(cfg).to(device)
 
     param_groups = build_param_groups(model, weight_decay=cfg.weight_decay)
     optimizer = torch.optim.AdamW(param_groups, lr=cfg.lr)

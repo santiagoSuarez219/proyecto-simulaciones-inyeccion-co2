@@ -1,5 +1,8 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from pathlib import Path
+
+import yaml
 
 
 @dataclass
@@ -13,6 +16,8 @@ class Config:
     device: str | None = "cuda"
     seed: int = 42
     deterministic: bool = False
+    experiment_name: str = "baseline"
+    model_variant: str = "fno_baseline"
 
     batch_size: int = 4
     epochs: int = 100
@@ -53,6 +58,23 @@ class Config:
     # best.pt usan SIEMPRE el forward determinista por epoca; la incertidumbre es un
     # diagnostico periodico. <=0 => solo en la epoca final. La epoca final siempre se computa.
     uncertainty_eval_interval: int = 10
+
+
+def load_config_from_yaml(path: str | Path) -> Config:
+    """Carga un `Config` desde un YAML autocontenido (spec-001 Fase 2). El archivo debe
+    declarar solo campos existentes en el dataclass `Config` — cualquier clave desconocida
+    o campo faltante hace fallar la carga explícito en vez de silenciarlo."""
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+
+    valid_keys = {f.name for f in fields(Config)}
+    unknown_keys = set(data) - valid_keys
+    if unknown_keys:
+        raise ValueError(
+            f"{path}: claves desconocidas para Config: {sorted(unknown_keys)}"
+        )
+
+    return Config(**data)
 
 
 CFG = Config()
