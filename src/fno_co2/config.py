@@ -7,7 +7,7 @@ import yaml
 
 @dataclass
 class Config:
-    data_root: str = "."
+    data_root: str = "data/processed"
     train_dir: str | None = "train"
     val_dir: str | None = "test"
     output_dir: str = "./output"
@@ -37,6 +37,7 @@ class Config:
     spectral_modes: int = 16
     dropout_p: float = 0.1
     use_group_norm: bool = False  # M3, EXPERIMENTAL — ver docstring en models/blocks.py::ResBlock
+    unet_depth: int = 3  # Solo afecta a la variante unet_film; baseline lo ignora
 
     auto_resume: bool = True
     pause_hour: int = 7

@@ -30,3 +30,25 @@ Valores crudos por seed (época del `best.pt` de cada seed):
 **Conclusión:** Línea base congelada re-agregada con 3 seeds (42,43,44) tras corregir bug de data_root en baseline.yaml (spec backlog EXP-baseline-n1). Métricas consistentes entre seeds (val_sf_rmse en rango 0.0104-0.0124), std ya no degenerado a 0. Lista para comparaciones spec-002/003/004.
 
 <!-- /experiment: baseline -->
+
+<!-- experiment: unet_film -->
+## unet_film
+
+- **Qué cambia vs. línea base:** Reemplaza los 4 bloques `FiLMSpectralBlock` (FFT2) por un backbone U-Net convolucional multi-escala con 3 niveles, conservando exactamente el condicionamiento temporal FiLM del baseline (spec-002).
+- **Rama/commit:** exp/unet-film (fecha: 2026-07-15)
+- **Seeds:** (pendiente de ejecutar)
+- **Criterio de éxito (fijado antes de correr):** 
+  - `val_sf_r2` mean ≥ 0.974 (no más de 2% por debajo del baseline 0.9937)
+  - `val_vd_r2` mean ≥ 0.9430 (no más de 2% por debajo del baseline 0.9626)
+  - Ambos con ≥3 seeds
+  - Se declara "mejora" solo si el rango mean±std de `val_sf_r2` no se solapa con el del baseline y su mean lo supera (spec-001 Fase 6); en caso contrario: "equivalente" o "peor"
+
+| métrica | mean ± std | efecto vs. línea base | test | p-valor |
+|---|---|---|---|---|
+| (pendiente) | — | — | — | — |
+
+**¿Supera la línea base?** Pendiente de ejecución.
+
+**Conclusión:** Pendiente de ejecución de corrida multi-seed.
+
+<!-- /experiment: unet_film -->
