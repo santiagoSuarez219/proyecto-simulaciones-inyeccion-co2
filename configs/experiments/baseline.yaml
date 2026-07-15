@@ -1,7 +1,13 @@
 # Config congelada de la línea base (spec-001 Fase 0/2) — copia exacta de los defaults
 # de Config() al momento del tag `baseline-v1` (commit ce9cbfa). No editar para probar
 # variantes: cada variante nueva es su propio archivo en configs/experiments/.
-data_root: .
+# data_root corregido a "data/processed" (bug encontrado 2026-07-14): los defaults de
+# Config() usan data_root="." asumiendo train/test en la raíz del repo, pero los datos
+# reales viven en data/processed/{train,test} (ver CLAUDE.md, comando de entrenamiento) —
+# el valor con el que realmente se entrenó y congeló la seed 42 (ver
+# outputs/baseline/seed_42/config.json). Con data_root="." este archivo nunca fue
+# ejecutable tal cual.
+data_root: data/processed
 train_dir: train
 val_dir: test
 output_dir: ./output

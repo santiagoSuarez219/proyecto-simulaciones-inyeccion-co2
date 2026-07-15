@@ -81,9 +81,9 @@
 
 ---
 
-## 🔲 EXP-baseline-n1 — Línea base congelada con n=1 seed (contradice Fase 6 de spec-001)
+## ✅ EXP-baseline-n1 — Línea base congelada con n=1 seed (contradice Fase 6 de spec-001)
 
-- **Estado:** PENDIENTE. Detectado por `@reviewer` en la revisión de
+- **Estado:** RESUELTO (2026-07-15). Detectado por `@reviewer` en la revisión de
   `spec-001-framework-experimentacion-arquitecturas.md` previa a `[DONE]` (2026-07-14).
 - **Origen:** spec-001, Fase 0 (congelar línea base) vs. Fase 6, punto 1 (*"Mínimo 3 seeds
   por variante, línea base incluida, antes de reportar cualquier comparación"*).
@@ -96,14 +96,25 @@
   variante futura "supera" o no la línea base — cualquier variante con media distinta a la
   baseline parecería no solaparse, aunque la varianza real de la baseline (desconocida con
   n=1) pudiera ser comparable.
-- **Fix pendiente:** re-entrenar la línea base (`configs/experiments/baseline.yaml`) con
-  al menos 2 seeds adicionales (p. ej. `43, 44`) usando `scripts/run_experiment.py`, y
-  re-agregar con `scripts/aggregate_experiments.py` antes de reportar la primera
-  comparación real (spec-002/003) en `docs/experiments.md`.
-- **No bloquea** el cierre `[DONE]` de spec-001 en sí (el framework no ha reportado
-  ninguna comparación todavía; los 8 criterios de aceptación del spec están cubiertos),
-  pero **sí bloquea** cualquier veredicto de "supera / no supera la línea base" hasta
-  resolverse.
+- **Bug adicional encontrado al re-entrenar:** `configs/experiments/baseline.yaml` tenía
+  `data_root: .` (copiado literal de los defaults de `Config()`), pero la seed 42 real se
+  entrenó con `data_root=data/processed` (pasado por CLI antes de que existiera el loader
+  YAML). El archivo congelado nunca fue ejecutable tal cual — ambos intentos con
+  `run_experiment.py --seeds 43,44` fallaban en <3s con
+  `FileNotFoundError: No existe el directorio de train: train`. Corregido a
+  `data_root: data/processed` (commit pendiente en `development`); relevante también para
+  `spec-002`/`spec-003`, cuyos YAML de variante son "idénticos al baseline salvo
+  `model_variant`" y habrían heredado el mismo bug.
+- **Fix aplicado:** re-entrenadas las seeds `43` y `44` con
+  `scripts/run_experiment.py --config configs/experiments/baseline.yaml --seeds 43,44
+  --experiment-name baseline` (GPU RTX 6000 Ada, contenedor Docker `fno-baseline-s4344`,
+  ~8h + ~5.5h). Re-agregado con `scripts/aggregate_experiments.py --experiment baseline`.
+- **Resultado (`docs/experiments.md`, n=3):** `val_sf_r2=0.9937±0.0001`,
+  `val_vd_r2=0.9626±0.0028`, `val_sf_rmse=0.0091±0.0001`, `val_vd_rmse=0.0201±0.0007`.
+  Métricas muy consistentes entre seeds (42: sf_r2=0.9937/best epoch 12; 43: sf_r2=0.9938/
+  epoch 19; 44: sf_r2=0.9936/epoch 14) — el `std` ya no es 0, la varianza real de la
+  baseline es baja. Desbloquea los veredictos "supera/no supera línea base" para
+  `spec-002`, `spec-003` y `spec-004`.
 
 ---
 
