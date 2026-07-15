@@ -45,10 +45,23 @@ Valores crudos por seed (época del `best.pt` de cada seed):
 
 | métrica | mean ± std | efecto vs. línea base | test | p-valor |
 |---|---|---|---|---|
-| (pendiente) | — | — | — | — |
+| val_sf_r2 | 0.1162 (seed_42 solo) | —0.877 (88% peor) | — | — |
+| val_vd_r2 | 0.5181 (seed_42 solo) | —0.445 (45% peor) | — | — |
+| val_sf_rmse | 0.1080 (seed_42 solo) | +11.87× peor | — | — |
+| val_vd_rmse | 0.0722 (seed_42 solo) | +3.59× peor | — | — |
 
-**¿Supera la línea base?** Pendiente de ejecución.
+Valores por seed:
+- Seed 42: val_sf_r2=0.1162, val_vd_r2=0.5181 (completó, 1 época)
+- Seeds 43-44: OOM (out of memory después de seed 42)
 
-**Conclusión:** Pendiente de ejecución de corrida multi-seed.
+**¿Supera la línea base?** ❌ NO — Resultados muy por debajo del criterio.
+
+**Conclusión:** Entrenamiento ejecutado pero con problemas críticos:
+1. **Convergencia deficiente**: Seed 42 solo entrenó 1 época con val_sf_r2=0.116 (vs. esperado 0.974)
+2. **OOM en seeds posteriores**: Expansión de skips sobre T×B hace la arquitectura memory-intensive
+3. **Problema de debugging**: Arquitectura es estructuralmente correcta (tests pasan) pero el modelo no aprende
+
+La arquitectura U-Net está correctamente implementada (Fases 1-4 ✅), pero Fase 5 requiere debugging
+de entrenamiento: revisar inicialización de pesos, escalado de gradientes, hiperparámetros.
 
 <!-- /experiment: unet_film -->
