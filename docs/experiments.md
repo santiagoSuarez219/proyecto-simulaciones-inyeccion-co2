@@ -30,3 +30,32 @@ Valores crudos por seed (época del `best.pt` de cada seed):
 **Conclusión:** Línea base congelada re-agregada con 3 seeds (42,43,44) tras corregir bug de data_root en baseline.yaml (spec backlog EXP-baseline-n1). Métricas consistentes entre seeds (val_sf_rmse en rango 0.0104-0.0124), std ya no degenerado a 0. Lista para comparaciones spec-002/003/004.
 
 <!-- /experiment: baseline -->
+
+<!-- experiment: fno_axial_attn -->
+## fno_axial_attn
+
+- **Qué cambia vs. línea base:** Intercala AxialAttentionBlock (atención espacial factorizada en filas/columnas) tras cada FiLMSpectralBlock. Conserva encoder/decoder/condicionamiento FiLM intactos.
+- **Commit/rama:** exp/attention-spatial (spec-003 Fases 1–4)
+- **Seeds:** 42, 43, 44 (n=3)
+- **Criterio de éxito (fijado antes de correr):** reduce `val_sf_rmse` mean en ≥5% (baseline: 0.0091 → target: ≤0.00864) SIN degradar `val_vd_r2` (baseline: 0.9626 ± 0.0028); se acepta el costo extra de cómputo (atención O(H·W·(H+W))) solo si se supera este umbral.
+
+| métrica | mean ± std | efecto vs. línea base | test | p-valor |
+|---|---|---|---|---|
+| val_sf_r2 | — | — | — | — |
+| val_vd_r2 | — | — | — | — |
+| val_sf_rmse | — | — | — | — |
+| val_vd_rmse | — | — | — | — |
+
+Valores crudos por seed (época del `best.pt` de cada seed):
+
+| seed | epoch | val_sf_r2 | val_vd_r2 | val_sf_rmse | val_vd_rmse |
+|---|---|---|---|---|---|
+| (pendiente) | — | — | — | — | — |
+| (pendiente) | — | — | — | — | — |
+| (pendiente) | — | — | — | — | — |
+
+**¿Supera la línea base?** Pendiente de ejecución.
+
+**Conclusión:** Pendiente.
+
+<!-- /experiment: fno_axial_attn -->
