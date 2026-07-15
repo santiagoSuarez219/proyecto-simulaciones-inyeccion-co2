@@ -126,19 +126,55 @@ class UNetFiLMTemporal(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        """Inicialización Kaiming (He) para arquitectura profunda."""
+        """Inicialización estable para U-Net residual profunda sin normalización.
+
+        La versión previa (Kaiming fan_out/relu sobre TODO, incl. FiLM) hacía
+        explotar las activaciones ya en la inicialización: la modulación FiLM
+        arrancaba con escala aleatoria grande y se componía a través de los
+        UpBlock, divergiendo la loss a millones. Aquí:
+
+        - Convs/Linears activos: Kaiming fan_in (adecuado a GELU ≈ ReLU).
+        - FiLM gamma/beta a CERO → modulación identidad al inicio
+          (x·(1+0)+0 = x); imprescindible al apilar varios UpBlock.
+        - Segunda conv de cada ResBlock ESCALADA a un factor pequeño → cada
+          bloque residual arranca ~identidad (gelu(x + ε·block); estabiliza la
+          red profunda sin norm, variante de Fixup). No se anula exactamente
+          para que el Dropout2d intermedio siga teniendo efecto (MC Dropout
+          activo incluso sin entrenar; contrato spec-002 §2.4).
+        """
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.GroupNorm):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+
+        # Rama residual casi-identidad: escala pequeña (no cero) en la última
+        # conv de cada ResBlock. Estabiliza sin normalización y mantiene vivo
+        # el Dropout2d intermedio.
+        res_scale = 0.1
+        for m in self.modules():
+            if isinstance(m, ResBlock):
+                convs = [layer for layer in m.block if isinstance(layer, nn.Conv2d)]
+                if convs:
+                    with torch.no_grad():
+                        convs[-1].weight.mul_(res_scale)
+                        if convs[-1].bias is not None:
+                            convs[-1].bias.zero_()
+
+        # Zero-init de FiLM: modulación identidad al inicio (no amplifica).
+        for m in self.modules():
+            if isinstance(m, FiLMModulation):
+                nn.init.zeros_(m.gamma.weight)
+                nn.init.zeros_(m.gamma.bias)
+                nn.init.zeros_(m.beta.weight)
+                nn.init.zeros_(m.beta.bias)
 
     def forward(self, x, d, inj):
         """

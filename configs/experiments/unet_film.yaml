@@ -11,9 +11,12 @@ seed: 42
 deterministic: false
 experiment_name: unet_film
 model_variant: unet_film
-batch_size: 4
 epochs: 100
-lr: 0.0008
+# lr propio de la variante: la U-Net de ~70M params sin normalización diverge
+# al lr=8e-4 del baseline FNO (activaciones explotan tras el 1er paso AdamW).
+# 3e-5 da convergencia suave (verificado en overfit). Datos/split/seeds/loss/
+# métricas siguen idénticos al baseline; solo el lr se adapta por arquitectura.
+lr: 3.0e-05
 lr_scheduler: cosine
 lr_min: 1.0e-06
 weight_decay: 0.0001
@@ -29,6 +32,7 @@ spectral_modes: 16
 dropout_p: 0.1
 use_group_norm: false
 unet_depth: 3
+# batch_size reducido a 2 (la U-Net expande skips sobre T=61, cara en memoria).
 batch_size: 2
 auto_resume: true
 pause_hour: 7
