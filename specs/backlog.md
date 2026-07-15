@@ -1,6 +1,25 @@
 # Backlog de Deuda Técnica
 
-## [spec-002-debt-001] Optimización GPU de U-Net temporal
+## ✅ [spec-002-debt-001] Optimización GPU de U-Net temporal
+
+**Estado:** RESUELTO (2026-07-15). El OOM era un artefacto de correr **seeds en
+paralelo** (varios contenedores compartiendo la GPU + fragmentación), no un
+problema por-seed. `scripts/run_experiment.py` corre las seeds **secuencialmente**,
+así que el problema no aplica a la campaña real.
+
+**Medición (sonda forward+backward, datos reales 50×50, `hidden_dim=64`, RTX 6000
+Ada 48 GB):**
+- `batch_size=2`: pico **3.89 GiB** (17.7M params)
+- `batch_size=4`: pico **7.55 GiB**
+
+A `batch_size=2` (el valor del YAML) hay holgura enorme; **no se necesita gradient
+checkpointing** ni reducir `unet_depth`. Se corrige de paso un `batch_size`
+duplicado en `configs/experiments/unet_film.yaml` (líneas 14 y 32; en YAML gana el
+último → 2, pero era un bug latente). Nota: la estimación de ~6-8 h/seed del reporte
+original era con `hidden_dim=128` (69.9M params); el YAML usa `hidden_dim=64`
+(17.7M), sensiblemente más rápido.
+
+<details><summary>Reporte original (histórico)</summary>
 
 **Prioridad:** MEDIA  
 **Estimado:** 4-8 horas  
@@ -43,9 +62,54 @@ Al expandir los skips de (B, C, H, W) a (B*T, C, H, W), se duplica el uso de mem
 - Problema es de rendimiento, no de correción
 - Solución #2 (refactor) es la más elegante pero requiere más trabajo
 
+</details>
+
 ---
 
-## [spec-002-debt-002] Investigar convergencia deficiente
+## ✅ [spec-002-debt-002] Investigar convergencia deficiente
+
+**Estado:** RESUELTO — mecanismo (2026-07-15). Diagnóstico con overfit de 1 muestra
+(gate de Fase 5.1) + fix aplicado + humo en verde. Falta solo la confirmación
+multi-seed real con GPU (Fase 5.3, gated por el usuario).
+
+### Causa raíz (dos bugs independientes)
+
+1. **Explosión en la inicialización.** El `_init_weights` previo (commit `e1a4091`,
+   introducido *para* arreglar la convergencia y que la empeoró) aplicaba
+   `kaiming_normal_(fan_out, relu)` a **todo**, incluidos los `gamma`/`beta` de FiLM.
+   FiLM es `x·(1+γ)+β`; con γ,β aleatorios grandes la modulación amplifica la señal,
+   y eso se **compone a través de los 3 UpBlock** → el forward explota ya en la
+   inicialización (overfit: `train_loss` E1 = **986**, `sf_rmse` = 860 con targets en
+   `[0,1]`). Luego el 1er paso de AdamW dispara la loss a millones.
+2. **LR demasiado alto.** La U-Net (sin normalización, profunda) es inestable al
+   `lr=8e-4` del baseline FNO: AdamW normaliza el update por-parámetro, así que el
+   1er paso mueve cada peso ~`±lr` sin importar `grad_clip`. Con el init arreglado
+   pero `lr=8e-4` seguía divergiendo; a `lr=1e-4` oscilaba; a **`lr=3e-5`** converge
+   suave.
+
+> El `val_sf_r2=0.116` original es de **datos completos, 1 época** (gradientes que
+> varían por batch promedian y evitan la explosión que sí aparece en el overfit de 1
+> muestra), y de **antes** del `_init_weights` Kaiming. Con init por defecto
+> sub-ajustaba; el "fix" Kaiming lo volvió divergente. Ambos quedan corregidos.
+
+### Fix aplicado
+- **`src/fno_co2/models/variants/unet_film.py::_init_weights`:** Kaiming `fan_in`
+  en convs/linears activos; **FiLM `gamma`/`beta` a cero** (modulación identidad al
+  inicio); **última conv de cada `ResBlock` escalada a 0.1** (rama residual
+  casi-identidad, variante de Fixup; **no** exactamente cero para mantener vivo el
+  `Dropout2d` intermedio → MC Dropout sigue activo, contrato §2.4).
+- **`configs/experiments/unet_film.yaml`:** `lr: 8e-4 → 3e-5` (hiperparámetro
+  por-variante; datos/split/seeds/loss/métricas siguen idénticos al baseline).
+
+### Verificación
+- [x] Overfit de 1 muestra baja la loss de forma monótona y estable, con la config
+      real del YAML (`h_dim=64`, `lr=3e-5`): `train_loss` E1=5.26 → E40=0.55,
+      `sf_rmse` 0.31 → 0.036. Antes: divergía a millones.
+- [x] `pytest tests/ -m "not slow"` en verde (135 passed), incl. `test_mc_dropout_active`.
+- [ ] **Pendiente (Fase 5.3, GPU + confirmación del usuario):** corrida multi-seed
+      real ≥3 seeds y comprobar `val_sf_r2` cercano al baseline en datos completos.
+
+<details><summary>Reporte original (histórico)</summary>
 
 **Prioridad:** MEDIA  
 **Estimado:** 2-4 horas  
@@ -69,4 +133,6 @@ Uno de:
 - [ ] Probar FiLM en diferentes puntos
 - [ ] Comparar gradientes entre U-Net y baseline
 - [ ] Intentar arquitectura simplificada
+
+</details>
 
