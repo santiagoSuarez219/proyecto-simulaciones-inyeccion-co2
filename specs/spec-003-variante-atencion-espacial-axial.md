@@ -1,12 +1,10 @@
-# spec-003 — Variante de arquitectura FNO + atención espacial axial
+# spec-003 — Variante de arquitectura FNO + atención espacial axial [TESTING]
 
 > **Autor:** rol `@architect`
-> **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-15 (desbloqueado; ajustado a la
-> convención real del registry)
-> **Estado:** PLANIFICADO — **desbloqueado**. `spec-001` está `[DONE]` (framework de
-> experimentación implementado: existen `models/registry.py::build_model`, `models/variants/`,
-> el flag `--model-variant`/`Config.model_variant`, y `training/loop.py` ya usa
-> `build_model(cfg)`). Las precondiciones de Fase 0 están satisfechas; solo resta crear la rama.
+> **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-15 (Fases 1–4 implementadas)
+> **Estado:** [TESTING] — Fases 1–4 completas (AxialAttentionBlock, FNOAxialAttention, config,
+> registry discovery, YAML; tests: 16/16 ✅). Fase 5 (humo + experimento multi-seed con GPU)
+> pendiente de confirmación del usuario.
 > **Depende de:** `spec-001` (framework de experimentación y comparación de
 > arquitecturas). Es una **variante estructural** más dentro de ese framework
 > (spec-001 §Fase 3): vive en `models/variants/`, se registra en `build_model(cfg)` y se
@@ -241,21 +239,30 @@ sin `@pytest.mark.slow`:
 
 ---
 
-## Fase 5 — Humo de convergencia y experimento comparativo
+## Fase 5 — Humo de convergencia y experimento comparativo (Pendiente)
 
 > Usa el framework de `spec-001`; no reimplementa entrenamiento.
+> **Requisito:** confirmación explícita del usuario para ejecutar entrenamientos con GPU.
 
-1. **Humo:** `scripts/train.py --model-variant fno_axial_attn --overfit-sample-idx 0` unas
-   épocas; la loss debe **bajar** (detecta errores de arquitectura antes de gastar GPU).
+1. **Humo:** `scripts/train.py --model-variant fno_axial_attn --overfit-sample-idx 0 --epochs 5`
+   ~épocas; la loss debe **bajar** (detecta errores de arquitectura antes de gastar GPU).
+   ```bash
+   source .venv/bin/activate
+   python scripts/train.py --model-variant fno_axial_attn --overfit-sample-idx 0 --epochs 5
+   ```
+
 2. **Criterio de éxito predefinido (⚠️ fijar ANTES de correr, `spec-001` Fase 6):** escribir
    la fila en `docs/experiments.md` con hipótesis y umbral *antes* de ver resultados.
    Propuesta a confirmar:
    > *"`fno_axial_attn` reduce `val_sf_rmse` mean en ≥5% sin degradar `val_vd_r2`, con
    > ≥3 seeds; se acepta el costo extra de cómputo solo si la mejora supera ese umbral."*
-3. **Corrida real (requiere GPU + datos post-C1 + baseline congelada — `spec-001` Fase 0):**
-   `scripts/run_experiment.py --config configs/experiments/fno_axial_attn.yaml --n-seeds 3`.
-   **⚠️ Confirmación explícita del usuario** antes de lanzar entrenamiento (§Despliegue de
-   `CLAUDE.md`).
+
+3. **Corrida real (requiere GPU + datos post-C1 + baseline congelada):**
+   ```bash
+   python scripts/run_experiment.py --config configs/experiments/fno_axial_attn.yaml --n-seeds 3
+   ```
+   **🔴 REQUIERE CONFIRMACIÓN EXPLÍCITA DEL USUARIO** (§Despliegue de `CLAUDE.md`).
+
 4. **Agregación:** `scripts/aggregate_experiments.py` añade la fila `fno_axial_attn` a
    `docs/experiments.md` con mean±std, tamaño de efecto y valores por seed vs. baseline.
    Sin conclusiones de "mejor/peor" con <3 seeds ni rangos mean±std solapados
