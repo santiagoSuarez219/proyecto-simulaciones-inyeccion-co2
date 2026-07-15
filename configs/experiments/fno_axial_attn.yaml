@@ -1,12 +1,8 @@
-# Config congelada de la línea base (spec-001 Fase 0/2) — copia exacta de los defaults
-# de Config() al momento del tag `baseline-v1` (commit ce9cbfa). No editar para probar
-# variantes: cada variante nueva es su propio archivo en configs/experiments/.
-# data_root corregido a "data/processed" (bug encontrado 2026-07-14): los defaults de
-# Config() usan data_root="." asumiendo train/test en la raíz del repo, pero los datos
-# reales viven en data/processed/{train,test} (ver CLAUDE.md, comando de entrenamiento) —
-# el valor con el que realmente se entrenó y congeló la seed 42 (ver
-# outputs/baseline/seed_42/config.json). Con data_root="." este archivo nunca fue
-# ejecutable tal cual.
+# Config congelada de la variante fno_axial_attn (spec-003 Fase 3) — copia del baseline
+# con model_variant y parámetros de atención. Ejecutar con:
+#   python scripts/train.py --config configs/experiments/fno_axial_attn.yaml ...
+# o
+#   python scripts/run_experiment.py --config configs/experiments/fno_axial_attn.yaml --n-seeds 3
 data_root: data/processed
 train_dir: train
 val_dir: test
@@ -16,8 +12,8 @@ overfit_sample_idx: null
 device: cuda
 seed: 42
 deterministic: false
-experiment_name: baseline
-model_variant: fno_baseline
+experiment_name: fno_axial_attn
+model_variant: fno_axial_attn
 batch_size: 4
 epochs: 100
 lr: 0.0008
@@ -35,7 +31,6 @@ hidden_dim: 128
 spectral_modes: 16
 dropout_p: 0.1
 use_group_norm: false
-unet_depth: 3
 attn_heads: 4
 attn_num_blocks: 4
 auto_resume: true

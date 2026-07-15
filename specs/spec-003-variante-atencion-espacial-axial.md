@@ -1,10 +1,10 @@
-# spec-003 — Variante de arquitectura FNO + atención espacial axial
+# spec-003 — Variante de arquitectura FNO + atención espacial axial [TESTING]
 
 > **Autor:** rol `@architect`
-> **Fecha:** 2026-07-02
-> **Estado:** PLANIFICADO — **bloqueado** por `spec-001` (requiere sus Fases 1 y 3
-> implementadas; ver Fase 0). No iniciar hasta que exista `models/registry.py` y el
-> flag `--model-variant`.
+> **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-15 (Fases 1–4 implementadas)
+> **Estado:** [TESTING] — Fases 1–4 completas (AxialAttentionBlock, FNOAxialAttention, config,
+> registry discovery, YAML; tests: 16/16 ✅). Fase 5 (humo + experimento multi-seed con GPU)
+> pendiente de confirmación del usuario.
 > **Depende de:** `spec-001` (framework de experimentación y comparación de
 > arquitecturas). Es una **variante estructural** más dentro de ese framework
 > (spec-001 §Fase 3): vive en `models/variants/`, se registra en `build_model(cfg)` y se
@@ -95,7 +95,11 @@ En `src/fno_co2/models/variants/fno_axial_attn.py`:
   del baseline y estable sin depender del tamaño de batch, que aquí es `B*T`).
 - **Positional encoding:** codificación posicional aprendida (o sinusoidal) **por eje**
   (filas y columnas) sumada antes de la atención — la atención es permutación-invariante y
-  la posición espacial importa físicamente (distancia a los pozos).
+  la posición espacial importa físicamente (distancia a los pozos). **Implementarlo como
+  `nn.Embedding`** (una por eje) o como **buffer sinusoidal** (`register_buffer`, no es
+  parámetro): así `build_param_groups` (name-based, **no se edita** — ver §2.5) lo deja
+  fuera de weight decay automáticamente (los `nn.Embedding` caen en `no_decay`; un buffer no
+  es parámetro). **Evitar un `nn.Parameter` crudo**, que caería en `decay` sin quererlo.
 - **Atención por filas (eje H):** reordenar `(B*T, C, H, W)` para tratar `W` como parte del
   batch → secuencias de longitud `H`; MHSA multi-cabeza (`cfg.attn_heads`).
 - **Atención por columnas (eje W):** análogo con `H` en el batch → secuencias de longitud `W`.
@@ -131,22 +135,28 @@ Idéntico al del baseline y al de `spec-002` §2:
    embeddings siguen cayendo en `no_decay` vía `build_param_groups` (name-based). Los pesos
    de la atención (`Linear` Q/K/V/proj) van a `decay` como cualquier `Linear` — es lo
    estándar; sus **bias** caen en `no_decay` por la regla `.bias`.
-6. **Constructor:** instanciable desde `build_model(cfg)` leyendo solo campos de `Config`.
+6. **Constructor / descubrimiento:** el módulo `fno_co2.models.variants.fno_axial_attn`
+   expone una función `build(cfg) -> nn.Module` que instancia `FNOAxialAttention` leyendo
+   solo campos de `Config`. `registry.build_model(cfg)` la descubre por `importlib` a partir
+   de `cfg.model_variant` — **no se edita `registry.py`** (convención de `spec-001` Fase 3,
+   confirmada por `spec-002` `[DONE]`).
 
 ---
 
-## Fase 0 — Precondiciones (bloqueantes)
+## Fase 0 — Precondiciones
 
-1. **`spec-001` Fase 1 implementada:** `--model-variant` / `Config.model_variant`;
-   `build_run_signature` usando `cfg.model_variant`.
-2. **`spec-001` Fase 3 implementada:** existe `models/registry.py::build_model` y el
-   directorio `models/variants/`; `training/loop.py` usa `build_model(cfg)` (hoy en
-   `loop.py:211` se instancia `PhysicalFNOArchitecture` directamente).
-3. Rama `exp/attention-spatial` creada **desde `development`** (`CLAUDE.md` §Git). **No**
-   trabajar sobre `main`/`development`.
+1. ✅ **`spec-001` Fase 1 (CUMPLIDA):** `--model-variant` / `Config.model_variant`
+   (`config.py:20`) y `build_run_signature` usando `cfg.model_variant` ya existen.
+2. ✅ **`spec-001` Fase 3 (CUMPLIDA):** existen `models/registry.py::build_model` y el
+   directorio `models/variants/`; `training/loop.py:239` ya instancia vía `build_model(cfg)`
+   (no `PhysicalFNOArchitecture` directo). El registry **despacha por `importlib`** al módulo
+   `fno_co2.models.variants.<model_variant>` esperando una función `build(cfg)` — no hay que
+   editarlo para añadir la variante.
+3. ⬜ Rama `exp/attention-spatial` creada **desde `development`** (`CLAUDE.md` §Git). **No**
+   trabajar sobre `main`/`development`. (Única precondición pendiente.)
 
 **Verificación:** `--model-variant` aceptado por `scripts/train.py`; `build_model` despacha
-`"fno_baseline"` → `PhysicalFNOArchitecture` (test de `spec-001`).
+`"fno_baseline"` → `PhysicalFNOArchitecture` (test de `spec-001`, ya en verde).
 
 ---
 
@@ -182,17 +192,20 @@ devuelve `(N, C, H, W)` (mismo shape), en grilla cuadrada y no cuadrada.
 
 ---
 
-## Fase 3 — Integración: Config, registry y config de experimento
+## Fase 3 — Integración: Config, función `build` y config de experimento
 
-**Dónde:** `src/fno_co2/config.py`, `src/fno_co2/models/registry.py`,
-`configs/experiments/fno_axial_attn.yaml`.
+**Dónde:** `src/fno_co2/config.py`, `src/fno_co2/models/variants/fno_axial_attn.py`
+(la función `build`), `configs/experiments/fno_axial_attn.yaml`.
+**`registry.py` NO se toca.**
 
 1. `Config`: añadir `attn_heads: int = 4` y `attn_num_blocks: int = 4` (documentados:
    **solo afectan a la variante `fno_axial_attn`**; el baseline los ignora).
-2. `registry.py::build_model`: registrar `"fno_axial_attn"` → `FNOAxialAttention(...)`,
-   leyendo `time_steps`, `hidden_dim`, `spectral_modes`, `dropout_p`, `use_group_norm`,
-   `attn_heads`, `attn_num_blocks` de `cfg`. `"fno_baseline"` intacto; variante desconocida
-   sigue lanzando `ValueError` explícito.
+2. **Función `build(cfg) -> nn.Module`** en `fno_axial_attn.py` (misma convención que
+   `unet_film.py::build` de `spec-002`): construye `FNOAxialAttention` leyendo `time_steps`,
+   `hidden_dim` (como `h_dim`), `spectral_modes` (como `modes`), `dropout_p`, `use_group_norm`,
+   `attn_heads`, `attn_num_blocks` de `cfg`, con `in_c=5` y `cond_dim=128`. El registry la
+   descubre por `importlib` con `model_variant="fno_axial_attn"` **sin editar `registry.py`**;
+   `"fno_baseline"` sigue intacto y una variante desconocida sigue lanzando `ValueError`.
 3. `configs/experiments/fno_axial_attn.yaml`: config **completa y autocontenida** (misma
    estructura que `baseline.yaml`), idéntica al baseline salvo `model_variant:
    fno_axial_attn` y `attn_heads`/`attn_num_blocks`.
@@ -214,32 +227,42 @@ sin `@pytest.mark.slow`:
 3. **Backward:** `loss.backward()` produce gradientes finitos (sin `NaN`/`Inf`).
 4. **MC Dropout real:** con `dropout_p>0` y `model.train()`, dos `forward` de la misma
    entrada difieren → incertidumbre >0.
-5. **Param groups:** `build_param_groups` deja los `gamma`/`beta` de FiLM y embeddings en
-   `no_decay`; los pesos de atención en `decay` y sus bias en `no_decay`.
+5. **Param groups:** `build_param_groups` deja los `gamma`/`beta` de FiLM, los embeddings y
+   el positional encoding (si es `nn.Embedding`) en `no_decay`; los pesos de atención en
+   `decay` y sus bias en `no_decay`.
 6. **Validación de heads:** `hidden_dim` no divisible por `attn_heads` lanza error explícito.
-7. **Registry:** `build_model` con `"fno_axial_attn"` devuelve la clase; string desconocido
-   lanza `ValueError`.
+7. **Registry (sin editarlo):** `build_model(Config(model_variant="fno_axial_attn"))` devuelve
+   la clase vía descubrimiento por `importlib`; string desconocido lanza `ValueError`.
 
 **Verificación:** `pytest tests/unit/test_fno_axial_attn.py -v` pasa; `pytest tests/ -m
 "not slow"` completo sigue verde (no rompe `spec-000`/`spec-001`/`spec-002`).
 
 ---
 
-## Fase 5 — Humo de convergencia y experimento comparativo
+## Fase 5 — Humo de convergencia y experimento comparativo (Pendiente)
 
 > Usa el framework de `spec-001`; no reimplementa entrenamiento.
+> **Requisito:** confirmación explícita del usuario para ejecutar entrenamientos con GPU.
 
-1. **Humo:** `scripts/train.py --model-variant fno_axial_attn --overfit-sample-idx 0` unas
-   épocas; la loss debe **bajar** (detecta errores de arquitectura antes de gastar GPU).
+1. **Humo:** `scripts/train.py --model-variant fno_axial_attn --overfit-sample-idx 0 --epochs 5`
+   ~épocas; la loss debe **bajar** (detecta errores de arquitectura antes de gastar GPU).
+   ```bash
+   source .venv/bin/activate
+   python scripts/train.py --model-variant fno_axial_attn --overfit-sample-idx 0 --epochs 5
+   ```
+
 2. **Criterio de éxito predefinido (⚠️ fijar ANTES de correr, `spec-001` Fase 6):** escribir
    la fila en `docs/experiments.md` con hipótesis y umbral *antes* de ver resultados.
    Propuesta a confirmar:
    > *"`fno_axial_attn` reduce `val_sf_rmse` mean en ≥5% sin degradar `val_vd_r2`, con
    > ≥3 seeds; se acepta el costo extra de cómputo solo si la mejora supera ese umbral."*
-3. **Corrida real (requiere GPU + datos post-C1 + baseline congelada — `spec-001` Fase 0):**
-   `scripts/run_experiment.py --config configs/experiments/fno_axial_attn.yaml --n-seeds 3`.
-   **⚠️ Confirmación explícita del usuario** antes de lanzar entrenamiento (§Despliegue de
-   `CLAUDE.md`).
+
+3. **Corrida real (requiere GPU + datos post-C1 + baseline congelada):**
+   ```bash
+   python scripts/run_experiment.py --config configs/experiments/fno_axial_attn.yaml --n-seeds 3
+   ```
+   **🔴 REQUIERE CONFIRMACIÓN EXPLÍCITA DEL USUARIO** (§Despliegue de `CLAUDE.md`).
+
 4. **Agregación:** `scripts/aggregate_experiments.py` añade la fila `fno_axial_attn` a
    `docs/experiments.md` con mean±std, tamaño de efecto y valores por seed vs. baseline.
    Sin conclusiones de "mejor/peor" con <3 seeds ni rangos mean±std solapados
@@ -254,9 +277,9 @@ sin `@pytest.mark.slow`:
 
 | Archivo / carpeta | Fase | Naturaleza |
 |---|---|---|
-| `src/fno_co2/models/variants/fno_axial_attn.py` | 1, 2 | **Nuevo** — `AxialAttentionBlock` + `FNOAxialAttention` |
+| `src/fno_co2/models/variants/fno_axial_attn.py` | 1, 2, 3 | **Nuevo** — `AxialAttentionBlock` + `FNOAxialAttention` + función `build(cfg)` |
 | `src/fno_co2/config.py` | 3 | Añade `attn_heads`, `attn_num_blocks` (solo afectan a la variante) |
-| `src/fno_co2/models/registry.py` | 3 | Registra `"fno_axial_attn"` (creado por `spec-001` Fase 3) |
+| `src/fno_co2/models/registry.py` | — | **NO se modifica** — descubre la variante por `importlib`; la variante expone `build(cfg)` |
 | `configs/experiments/fno_axial_attn.yaml` | 3 | **Nuevo** — config autocontenida del experimento |
 | `tests/unit/test_fno_axial_attn.py` | 4 | **Nuevo** — shapes, backward, MC Dropout, param groups, heads, registry |
 | `docs/experiments.md` | 5 | Fila `fno_axial_attn` (append; archivo de `spec-001` Fase 5) |
@@ -298,12 +321,13 @@ sin `@pytest.mark.slow`:
       grilla no cuadrada, sin error de shape.
 - [ ] El `AxialAttentionBlock` preserva el shape espacial y usa atención axial (no densa).
 - [ ] `hidden_dim % attn_heads != 0` falla con error explícito.
-- [ ] Entrena con `scripts/train.py --model-variant fno_axial_attn` sin tocar
-      `training/loop.py` más allá de lo previsto por `spec-001` Fase 3.
+- [ ] Entrena con `scripts/train.py --model-variant fno_axial_attn` **sin tocar
+      `training/loop.py`** (ya usa `build_model(cfg)` desde `spec-001` Fase 3, `loop.py:239`).
 - [ ] MC Dropout produce incertidumbre >0 con la variante.
-- [ ] `build_param_groups` clasifica FiLM/embeddings en `no_decay` y los pesos de atención en
-      `decay` (bias en `no_decay`).
-- [ ] `fno.py` y `blocks.py` (línea base) quedan **sin modificar**.
+- [ ] `build_param_groups` clasifica FiLM/embeddings (incl. el positional encoding si es
+      `nn.Embedding`) en `no_decay` y los pesos de atención en `decay` (bias en `no_decay`).
+- [ ] `fno.py`, `blocks.py` y `registry.py` quedan **sin modificar** (la variante se descubre
+      por `importlib` vía su función `build(cfg)`).
 - [ ] `configs/experiments/fno_axial_attn.yaml` es autocontenido y reproducible por el loader
       de `spec-001` Fase 2.
 - [ ] `pytest tests/ -m "not slow"` completo pasa (no rompe specs previos).

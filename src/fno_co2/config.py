@@ -38,6 +38,8 @@ class Config:
     dropout_p: float = 0.1
     use_group_norm: bool = False  # M3, EXPERIMENTAL — ver docstring en models/blocks.py::ResBlock
     unet_depth: int = 3  # Solo afecta a la variante unet_film; baseline lo ignora
+    attn_heads: int = 4  # spec-003: número de cabezas de atención axial (solo afecta fno_axial_attn)
+    attn_num_blocks: int = 4  # spec-003: cuántos de los 4 bloques llevan atención intercalada
 
     auto_resume: bool = True
     pause_hour: int = 7

@@ -36,7 +36,7 @@ Valores crudos por seed (época del `best.pt` de cada seed):
 
 - **Qué cambia vs. línea base:** Reemplaza los 4 bloques `FiLMSpectralBlock` (FFT2) por un backbone U-Net convolucional multi-escala con 3 niveles, conservando exactamente el condicionamiento temporal FiLM del baseline (spec-002).
 - **Rama/commit:** exp/unet-film (fecha: 2026-07-15)
-- **Seeds:** (pendiente de ejecutar)
+- **Seeds:** (pendiente de re-ejecutar tras el fix de convergencia)
 - **Criterio de éxito (fijado antes de correr):** 
   - `val_sf_r2` mean ≥ 0.974 (no más de 2% por debajo del baseline 0.9937)
   - `val_vd_r2` mean ≥ 0.9430 (no más de 2% por debajo del baseline 0.9626)
@@ -45,23 +45,54 @@ Valores crudos por seed (época del `best.pt` de cada seed):
 
 | métrica | mean ± std | efecto vs. línea base | test | p-valor |
 |---|---|---|---|---|
-| val_sf_r2 | 0.1162 (seed_42 solo) | —0.877 (88% peor) | — | — |
-| val_vd_r2 | 0.5181 (seed_42 solo) | —0.445 (45% peor) | — | — |
-| val_sf_rmse | 0.1080 (seed_42 solo) | +11.87× peor | — | — |
-| val_vd_rmse | 0.0722 (seed_42 solo) | +3.59× peor | — | — |
+| val_sf_r2 | (pendiente re-run) | — | — | — |
+| val_vd_r2 | (pendiente re-run) | — | — | — |
+| val_sf_rmse | (pendiente re-run) | — | — | — |
+| val_vd_rmse | (pendiente re-run) | — | — | — |
 
 Valores por seed:
-- Seed 42: val_sf_r2=0.1162, val_vd_r2=0.5181 (completó, 1 época)
-- Seeds 43-44: OOM (out of memory después de seed 42)
+- (pendiente de re-ejecutar con la arquitectura estabilizada)
 
-**¿Supera la línea base?** ❌ NO — Resultados muy por debajo del criterio.
+**¿Supera la línea base?** Pendiente de re-ejecución con el fix aplicado.
 
-**Conclusión:** Entrenamiento ejecutado pero con problemas críticos:
-1. **Convergencia deficiente**: Seed 42 solo entrenó 1 época con val_sf_r2=0.116 (vs. esperado 0.974)
-2. **OOM en seeds posteriores**: Expansión de skips sobre T×B hace la arquitectura memory-intensive
-3. **Problema de debugging**: Arquitectura es estructuralmente correcta (tests pasan) pero el modelo no aprende
-
-La arquitectura U-Net está correctamente implementada (Fases 1-4 ✅), pero Fase 5 requiere debugging
-de entrenamiento: revisar inicialización de pesos, escalado de gradientes, hiperparámetros.
+**Conclusión:** El intento inicial divergía (seed 42: val_sf_r2=0.116 en 1 época; seeds
+43-44 OOM). Causa raíz diagnosticada y corregida (ver backlog spec-002-debt-001/002):
+inicialización que explotaba (FiLM Kaiming en vez de identidad) + lr demasiado alto para
+la U-Net sin normalización. Fix: init estable (FiLM cero + residual escalado) y `lr=3e-5`
+en el YAML; OOM era artefacto de seeds en paralelo (pico 3.89 GiB a batch 2 secuencial).
+Overfit de 1 muestra ahora converge suave (Fase 5.1 ✅). **Los números de seed_42 de arriba
+son pre-fix y quedan anulados**; falta la corrida multi-seed real (Fase 5.3, requiere GPU +
+confirmación del usuario) para poblar la tabla.
 
 <!-- /experiment: unet_film -->
+
+<!-- experiment: fno_axial_attn -->
+## fno_axial_attn
+
+- **Qué cambia vs. línea base:** Intercala AxialAttentionBlock (atención espacial factorizada en filas/columnas) tras cada FiLMSpectralBlock. Conserva encoder/decoder/condicionamiento FiLM intactos.
+- **Commit/rama:** exp/attention-spatial (spec-003 Fases 1–4)
+- **Seeds:** 42, 43, 44 (n=3)
+- **Criterio de éxito (fijado antes de correr):** reduce `val_sf_rmse` mean en ≥5% (baseline: 0.0091 → target: ≤0.00864) SIN degradar `val_vd_r2` (baseline: 0.9626 ± 0.0028); se acepta el costo extra de cómputo (atención O(H·W·(H+W))) solo si se supera este umbral.
+
+| métrica | mean ± std | efecto vs. línea base | test | p-valor |
+|---|---|---|---|---|
+| val_sf_r2 | — | — | — | — |
+| val_vd_r2 | — | — | — | — |
+| val_sf_rmse | — | — | — | — |
+| val_vd_rmse | — | — | — | — |
+
+Valores crudos por seed (época del `best.pt` de cada seed):
+
+| seed | epoch | val_sf_r2 | val_vd_r2 | val_sf_rmse | val_vd_rmse |
+|---|---|---|---|---|---|
+| (pendiente) | — | — | — | — | — |
+| (pendiente) | — | — | — | — | — |
+| (pendiente) | — | — | — | — | — |
+
+**¿Supera la línea base?** Pendiente de ejecución.
+
+**Conclusión:** Pendiente. Humo de convergencia (overfit 1 muestra, Fase 5.1) ✅: la loss
+baja de forma limpia (7.75 → 0.75 en 5 épocas) y MC Dropout produce incertidumbre >0. Falta
+la corrida multi-seed real (Fase 5.3, requiere GPU + confirmación del usuario).
+
+<!-- /experiment: fno_axial_attn -->
