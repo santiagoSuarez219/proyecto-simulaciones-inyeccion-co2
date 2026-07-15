@@ -134,16 +134,15 @@ class UNetFiLMTemporal(nn.Module):
         depth_map = d.view(b, 1, 1, 1).expand(b, 1, h, w)
         z = self.stem(torch.cat([x, depth_map], dim=1))
 
-        skip_shapes = [(z.size(2), z.size(3))]
-        skips = [z]
+        skips = []
+        skip_shapes = []
 
         for down in self.down_blocks:
-            z = down(z)
-            skip_shapes.append((z.size(2), z.size(3)))
             skips.append(z)
+            skip_shapes.append((z.size(2), z.size(3)))
+            z = down(z)
 
-        z_bottleneck = skips.pop()
-        skip_shapes.pop()
+        z_bottleneck = z
 
         if inj.ndim == 2:
             inj = inj.unsqueeze(0)
