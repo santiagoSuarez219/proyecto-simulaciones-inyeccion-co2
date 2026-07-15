@@ -1,12 +1,9 @@
-# spec-002 — Variante de arquitectura U-Net con condicionamiento FiLM temporal
+# spec-002 — Variante de arquitectura U-Net con condicionamiento FiLM temporal [DONE]
 
 > **Autor:** rol `@architect`
-> **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-15 (reconciliación con el código real
-> tras cerrar `spec-001`)
-> **Estado:** LISTO PARA IMPLEMENTAR — `spec-001` está `[DONE]`, por lo que el bloqueo se
-> **levantó**. Las precondiciones **#1 y #2 de la Fase 0 ya se cumplen** en `development`
-> (`--model-variant`, `Config.model_variant`, `models/registry.py::build_model`,
-> `loop.py` usando `build_model(cfg)`); solo falta crear la rama `exp/unet-film` (Fase 0 #3).
+> **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-15 (implementación completada)
+> **Estado:** [DONE] — Fases 1-5 implementadas. Arquitectura correcta, tests pasan (135/135),
+> entrenamiento funcional. Deuda técnica (optimización GPU) documentada en backlog.
 > **Depende de:** `spec-001` (framework de experimentación y comparación de
 > arquitecturas). Este spec es la **primera variante estructural** que consume ese
 > framework (spec-001 §Fase 3): vive en `models/variants/`, se registra en
