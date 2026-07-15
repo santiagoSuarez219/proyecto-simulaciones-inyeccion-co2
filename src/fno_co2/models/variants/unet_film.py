@@ -168,7 +168,7 @@ class UNetFiLMTemporal(nn.Module):
         for i, up in enumerate(self.up_blocks):
             skip = skips[-(i + 1)]
             skip_spatial = skip_shapes[-(i + 1)]
-            skip_expanded = skip.unsqueeze(0).expand(self.time_steps, -1, -1, -1, -1)
+            skip_expanded = skip.unsqueeze(1).expand(b, self.time_steps, -1, -1, -1)
             skip_expanded = skip_expanded.reshape(b * self.time_steps, -1, skip.size(2), skip.size(3))
             z_bt = up(z_bt, skip_expanded, cond_bt, skip_spatial)
 
