@@ -30,3 +30,38 @@ Valores crudos por seed (época del `best.pt` de cada seed):
 **Conclusión:** Línea base congelada re-agregada con 3 seeds (42,43,44) tras corregir bug de data_root en baseline.yaml (spec backlog EXP-baseline-n1). Métricas consistentes entre seeds (val_sf_rmse en rango 0.0104-0.0124), std ya no degenerado a 0. Lista para comparaciones spec-002/003/004.
 
 <!-- /experiment: baseline -->
+
+<!-- experiment: unet_film -->
+## unet_film
+
+- **Qué cambia vs. línea base:** Reemplaza los 4 bloques `FiLMSpectralBlock` (FFT2) por un backbone U-Net convolucional multi-escala con 3 niveles, conservando exactamente el condicionamiento temporal FiLM del baseline (spec-002).
+- **Rama/commit:** exp/unet-film (fecha: 2026-07-15)
+- **Seeds:** (pendiente de ejecutar)
+- **Criterio de éxito (fijado antes de correr):** 
+  - `val_sf_r2` mean ≥ 0.974 (no más de 2% por debajo del baseline 0.9937)
+  - `val_vd_r2` mean ≥ 0.9430 (no más de 2% por debajo del baseline 0.9626)
+  - Ambos con ≥3 seeds
+  - Se declara "mejora" solo si el rango mean±std de `val_sf_r2` no se solapa con el del baseline y su mean lo supera (spec-001 Fase 6); en caso contrario: "equivalente" o "peor"
+
+| métrica | mean ± std | efecto vs. línea base | test | p-valor |
+|---|---|---|---|---|
+| val_sf_r2 | 0.1162 (seed_42 solo) | —0.877 (88% peor) | — | — |
+| val_vd_r2 | 0.5181 (seed_42 solo) | —0.445 (45% peor) | — | — |
+| val_sf_rmse | 0.1080 (seed_42 solo) | +11.87× peor | — | — |
+| val_vd_rmse | 0.0722 (seed_42 solo) | +3.59× peor | — | — |
+
+Valores por seed:
+- Seed 42: val_sf_r2=0.1162, val_vd_r2=0.5181 (completó, 1 época)
+- Seeds 43-44: OOM (out of memory después de seed 42)
+
+**¿Supera la línea base?** ❌ NO — Resultados muy por debajo del criterio.
+
+**Conclusión:** Entrenamiento ejecutado pero con problemas críticos:
+1. **Convergencia deficiente**: Seed 42 solo entrenó 1 época con val_sf_r2=0.116 (vs. esperado 0.974)
+2. **OOM en seeds posteriores**: Expansión de skips sobre T×B hace la arquitectura memory-intensive
+3. **Problema de debugging**: Arquitectura es estructuralmente correcta (tests pasan) pero el modelo no aprende
+
+La arquitectura U-Net está correctamente implementada (Fases 1-4 ✅), pero Fase 5 requiere debugging
+de entrenamiento: revisar inicialización de pesos, escalado de gradientes, hiperparámetros.
+
+<!-- /experiment: unet_film -->

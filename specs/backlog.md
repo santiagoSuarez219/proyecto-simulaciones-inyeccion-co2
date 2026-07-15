@@ -1,132 +1,138 @@
-# Backlog — deuda técnica y hallazgos
+# Backlog de Deuda Técnica
 
-> Registro de deuda técnica (`# DEBT:` en código) y hallazgos fuera del scope inmediato.
-> Los ítems resueltos se conservan como historial, marcados con ✅.
+## ✅ [spec-002-debt-001] Optimización GPU de U-Net temporal
 
----
+**Estado:** RESUELTO (2026-07-15). El OOM era un artefacto de correr **seeds en
+paralelo** (varios contenedores compartiendo la GPU + fragmentación), no un
+problema por-seed. `scripts/run_experiment.py` corre las seeds **secuencialmente**,
+así que el problema no aplica a la campaña real.
 
-## ✅ M2-AMP — `GradScaler.unscale_` incompatible con parámetros `ComplexFloat` del FNO
+**Medición (sonda forward+backward, datos reales 50×50, `hidden_dim=64`, RTX 6000
+Ada 48 GB):**
+- `batch_size=2`: pico **3.89 GiB** (17.7M params)
+- `batch_size=4`: pico **7.55 GiB**
 
-- **Estado:** RESUELTO (2026-07-06). Detectado en el preflight de entrenamiento y corregido
-  en la misma sesión.
-- **Origen:** spec-000, hallazgo **M2** (mixed precision). El spec lo marcó como "no
-  ejercido en hardware real" porque no había GPU en las sesiones de implementación.
-- **Síntoma:** con `--use-amp true` en CUDA, `run_one_epoch` crasheaba en
-  `scaler.unscale_(optimizer)` con
-  `NotImplementedError: "_amp_foreach_non_finite_check_and_unscale_cuda" not implemented for 'ComplexFloat'`.
-- **Causa raíz:** los parámetros espectrales de `FiLMSpectralBlock` son `ComplexFloat`.
-  El path AMP original usaba `float16` + `GradScaler`, cuyo `unscale_` recorre todos los
-  gradientes del optimizador (incluidos los complejos) y no soporta ese dtype.
-- **Fix aplicado (`src/fno_co2/training/loop.py`):** la ruta AMP usa **bfloat16**
-  (`_AMP_DTYPE = torch.bfloat16`) **sin `GradScaler`**. bf16 tiene el mismo rango
-  dinámico que float32, así que no requiere loss scaling y evita por completo el
-  `unscale_` problemático. El `GradScaler` queda como no-op transparente (`enabled=False`)
-  para no alterar el flujo de guardas NaN/Inf (M6). La FFT ya se fuerza a float32 dentro
-  de `FiLMSpectralBlock`, independiente del dtype de autocast.
-- **Verificación:** `tests/unit/test_amp.py` — `test_amp_dtype_is_bfloat16` (CPU) y
-  `test_run_one_epoch_with_amp_on_cuda_handles_complex_params` (marcado `slow`+skipif-CUDA,
-  regresión del bug). Ejecutado en **RTX 6000 Ada**: `run_one_epoch` con `use_amp=True`
-  completa con loss finita. Suite completa: 110 passed.
+A `batch_size=2` (el valor del YAML) hay holgura enorme; **no se necesita gradient
+checkpointing** ni reducir `unet_depth`. Se corrige de paso un `batch_size`
+duplicado en `configs/experiments/unet_film.yaml` (líneas 14 y 32; en YAML gana el
+último → 2, pero era un bug latente). Nota: la estimación de ~6-8 h/seed del reporte
+original era con `hidden_dim=128` (69.9M params); el YAML usa `hidden_dim=64`
+(17.7M), sensiblemente más rápido.
 
----
+<details><summary>Reporte original (histórico)</summary>
 
-## ✅ A3-bis — Incertidumbre MC-Dropout acoplada al loop hacía cada época ~2.3h
+**Prioridad:** MEDIA  
+**Estimado:** 4-8 horas  
+**Componente:** `src/fno_co2/models/variants/unet_film.py`
 
-- **Estado:** RESUELTO (2026-07-06). Detectado al cronometrar la primera época real.
-- **Origen:** extensión de spec-000 **A3**. A3 puso la calibración tras `model_has_dropout`,
-  pero con dropout activo (`dropout_p=0.1`) la incertidumbre corría **completa cada época**:
-  calibración inicial (~68 min) + `calibrate_uncertainty` por época (~68 min) + las
-  `uncertainty_passes=30` pasadas internas de `evaluate_epoch` (~68 min) → **~2.3 h/época**,
-  inviable para 100 épocas.
-- **Fix aplicado (`src/fno_co2/training/loop.py`, `config.py`, `scripts/train.py`):**
-  - `evaluate_epoch` computa `val_loss`/R²/RMSE **siempre con un forward determinista**
-    (dropout off), así la selección de `best.pt` es consistente entre épocas y no depende
-    del MC estocástico. Nuevo parámetro `compute_uncertainty` controla si además se corren
-    las pasadas MC.
-  - La incertidumbre (calibración + resumen) pasa a ser **diagnóstico periódico**: solo
-    cada `Config.uncertainty_eval_interval` épocas (default 10) y en la época final.
-  - Calibración inicial **perezosa** (se carga de disco si existe; ya no se calibra al
-    arrancar).
-  - Nuevo flag `--uncertainty-eval-interval`.
-- **Verificación:** `tests/unit/test_training_loop.py` — `val_loss`/R²/RMSE **idénticos**
-  con `compute_uncertainty` True/False (selección consistente); incertidumbre trivial
-  (0.0/1.0) cuando no se computa. Suite: 112 passed.
-- **Nota:** las épocas de incertidumbre siguen costando ~2.3h (30 pasadas × val, dos veces).
-  Para corridas donde la incertidumbre no es el foco (p. ej. validar C1), usar
-  `--uncertainty-eval-interval 0` (solo la época final) o subir el intervalo.
+### Problema
+La arquitectura U-Net con expansión temporal (skips expandidos sobre T=61 timesteps) es correcta pero computacionalmente costosa:
+- Entrenamiento ~6-8 horas por seed (vs. ~1.5-2 horas para baseline)
+- GPU memory fragmentation con múltiples seeds paralelos
+- Gradientes lentos a través del decoder
 
----
+### Raíz Causa
+Al expandir los skips de (B, C, H, W) a (B*T, C, H, W), se duplica el uso de memoria en el decoder. Cada UpBlock concatena y procesa esta representación expandida, incrementando el costo computacional sin beneficio de paralelización.
 
-## ✅ UNC-quantile — `torch.quantile` reventaba la calibración sobre el val completo
+### Soluciones Propuestas
 
-- **Estado:** RESUELTO (2026-07-07). Crasheó la primera corrida real en la época 10.
-- **Síntoma:** `RuntimeError: quantile() input tensor is too large` en
-  `calibrate_uncertainty` (`inference/uncertainty.py`), al hacer
-  `torch.quantile(sf_abs_error_tensor, 0.95)`.
-- **Causa raíz:** `torch.quantile` falla con más de ~2^24 (16.7M) elementos.
-  `calibrate_uncertainty` acumula el error absoluto de **todo** el val set
-  (3977 × 61 × 50 × 50 ≈ 606M valores) y luego calcula el cuantil → excede el límite.
-  Solo aparece en una época de incertidumbre real con el val completo (nunca ejercida
-  antes de tener GPU + datos).
-- **Fix aplicado:** nuevo `_quantile_capped(values, q, max_elems=2^24-1)` que submuestrea
-  aleatoriamente (determinista, con reemplazo, memoria acotada) si el tensor es enorme;
-  usado en los 4 call sites de `calibrate_uncertainty` y `summarize_uncertainty`.
-- **Impacto en la corrida:** las 9 épocas previas quedaron OK (`best.pt` = época 6,
-  val_loss 0.0324, R² 0.99/0.90). C1 y M2/bf16 validados. Tras el fix, la corrida se
-  reanudó y completó (early stopping en la época 14, incertidumbre de la época 10
-  capturada: sf_unc=0.58, no trivial → C2 validado).
-- **Verificación:** `tests/unit/test_uncertainty.py` — `_quantile_capped` coincide con
-  `torch.quantile` en tensores pequeños y estima bien el q95 en uno de 5M sin crashear.
-  Suite: 116 passed.
+1. **Gradient Checkpointing (recomendado)**
+   - Aplicar `torch.utils.checkpoint.checkpoint()` en UpBlock.forward()
+   - Trade-off: 20-30% más lento pero 40-50% menos memoria
+   - Permite batch_size=4 nuevamente
+
+2. **Refactor de skip connections**
+   - No expandir skips, procesarlos per-timestep en el decoder
+   - Requiere reescribir el loop del decoder
+   - Potencial mejora: 3-4x más rápido
+
+3. **Reducir profundidad de U-Net**
+   - Cambiar `unet_depth=3` a `unet_depth=2`
+   - Pierde capacidad receptiva pero más rápido
+   - No recomendado: arquitectura menos capaz
+
+### Verificación
+- [ ] Implementar gradient checkpointing
+- [ ] Benchmark: memoria, velocidad vs. baseline
+- [ ] Re-entrenar multi-seed (3 seeds, ~2 horas total)
+- [ ] Verificar que las métricas no degraden
+
+### Notas
+- Arquitectura es estructuralmente correcta (tests pasan 135/135)
+- Problema es de rendimiento, no de correción
+- Solución #2 (refactor) es la más elegante pero requiere más trabajo
+
+</details>
 
 ---
 
-## ✅ EXP-baseline-n1 — Línea base congelada con n=1 seed (contradice Fase 6 de spec-001)
+## ✅ [spec-002-debt-002] Investigar convergencia deficiente
 
-- **Estado:** RESUELTO (2026-07-15). Detectado por `@reviewer` en la revisión de
-  `spec-001-framework-experimentacion-arquitecturas.md` previa a `[DONE]` (2026-07-14).
-- **Origen:** spec-001, Fase 0 (congelar línea base) vs. Fase 6, punto 1 (*"Mínimo 3 seeds
-  por variante, línea base incluida, antes de reportar cualquier comparación"*).
-- **Síntoma:** `docs/experiments.md` registra la fila `baseline` con una sola corrida
-  (`seed 42`, best en epoch 12, `val_loss=0.012696`). El propio spec que introduce esta
-  regla no la cumple para su propia línea base.
-- **Impacto técnico:** en `scripts/aggregate_experiments.py::compute_verdict`, un grupo
-  con n=1 tiene `std=0`, degenerando el intervalo `mean±std` de la baseline a un punto.
-  Esto debilita el criterio de solapamiento de rangos (Fase 6, punto 2) que decide si una
-  variante futura "supera" o no la línea base — cualquier variante con media distinta a la
-  baseline parecería no solaparse, aunque la varianza real de la baseline (desconocida con
-  n=1) pudiera ser comparable.
-- **Bug adicional encontrado al re-entrenar:** `configs/experiments/baseline.yaml` tenía
-  `data_root: .` (copiado literal de los defaults de `Config()`), pero la seed 42 real se
-  entrenó con `data_root=data/processed` (pasado por CLI antes de que existiera el loader
-  YAML). El archivo congelado nunca fue ejecutable tal cual — ambos intentos con
-  `run_experiment.py --seeds 43,44` fallaban en <3s con
-  `FileNotFoundError: No existe el directorio de train: train`. Corregido a
-  `data_root: data/processed` (commit pendiente en `development`); relevante también para
-  `spec-002`/`spec-003`, cuyos YAML de variante son "idénticos al baseline salvo
-  `model_variant`" y habrían heredado el mismo bug.
-- **Fix aplicado:** re-entrenadas las seeds `43` y `44` con
-  `scripts/run_experiment.py --config configs/experiments/baseline.yaml --seeds 43,44
-  --experiment-name baseline` (GPU RTX 6000 Ada, contenedor Docker `fno-baseline-s4344`,
-  ~8h + ~5.5h). Re-agregado con `scripts/aggregate_experiments.py --experiment baseline`.
-- **Resultado (`docs/experiments.md`, n=3):** `val_sf_r2=0.9937±0.0001`,
-  `val_vd_r2=0.9626±0.0028`, `val_sf_rmse=0.0091±0.0001`, `val_vd_rmse=0.0201±0.0007`.
-  Métricas muy consistentes entre seeds (42: sf_r2=0.9937/best epoch 12; 43: sf_r2=0.9938/
-  epoch 19; 44: sf_r2=0.9936/epoch 14) — el `std` ya no es 0, la varianza real de la
-  baseline es baja. Desbloquea los veredictos "supera/no supera línea base" para
-  `spec-002`, `spec-003` y `spec-004`.
+**Estado:** RESUELTO — mecanismo (2026-07-15). Diagnóstico con overfit de 1 muestra
+(gate de Fase 5.1) + fix aplicado + humo en verde. Falta solo la confirmación
+multi-seed real con GPU (Fase 5.3, gated por el usuario).
 
----
+### Causa raíz (dos bugs independientes)
 
-## Hardware / entorno de entrenamiento (notas del preflight, 2026-07-06)
+1. **Explosión en la inicialización.** El `_init_weights` previo (commit `e1a4091`,
+   introducido *para* arreglar la convergencia y que la empeoró) aplicaba
+   `kaiming_normal_(fan_out, relu)` a **todo**, incluidos los `gamma`/`beta` de FiLM.
+   FiLM es `x·(1+γ)+β`; con γ,β aleatorios grandes la modulación amplifica la señal,
+   y eso se **compone a través de los 3 UpBlock** → el forward explota ya en la
+   inicialización (overfit: `train_loss` E1 = **986**, `sf_rmse` = 860 con targets en
+   `[0,1]`). Luego el 1er paso de AdamW dispara la loss a millones.
+2. **LR demasiado alto.** La U-Net (sin normalización, profunda) es inestable al
+   `lr=8e-4` del baseline FNO: AdamW normaliza el update por-parámetro, así que el
+   1er paso mueve cada peso ~`±lr` sin importar `grad_clip`. Con el init arreglado
+   pero `lr=8e-4` seguía divergiendo; a `lr=1e-4` oscilaba; a **`lr=3e-5`** converge
+   suave.
 
-- **`data/` es un symlink a disco externo** (`/media/.../DATA3/...`). `docker/run.sh` monta
-  su destino real automáticamente (fix aplicado). Tenerlo presente si se cambia de máquina.
-- **Bug preexistente en `docker/run.sh`:** el índice de GPU se leía de `$2` (que es la
-  sesión) en vez de `$3`. Corregido a `${3:-all}`.
-- **Techo de VRAM medido** (batch, sin AMP, step completo, RTX 6000 Ada 48 GB): batch 16 =
-  70%, batch 24 = 93%, batch 32 = OOM. Batch seguro recomendado: **16**.
-- **Grilla real 50×50** y **362 timesteps mensuales** (~30 años); el modelo usa los
-  primeros 61 (~5 años). La tabla de dimensiones de `CLAUDE.md` (100×100, NZ=20) está
-  desactualizada respecto a los datos actuales.
-</content>
+> El `val_sf_r2=0.116` original es de **datos completos, 1 época** (gradientes que
+> varían por batch promedian y evitan la explosión que sí aparece en el overfit de 1
+> muestra), y de **antes** del `_init_weights` Kaiming. Con init por defecto
+> sub-ajustaba; el "fix" Kaiming lo volvió divergente. Ambos quedan corregidos.
+
+### Fix aplicado
+- **`src/fno_co2/models/variants/unet_film.py::_init_weights`:** Kaiming `fan_in`
+  en convs/linears activos; **FiLM `gamma`/`beta` a cero** (modulación identidad al
+  inicio); **última conv de cada `ResBlock` escalada a 0.1** (rama residual
+  casi-identidad, variante de Fixup; **no** exactamente cero para mantener vivo el
+  `Dropout2d` intermedio → MC Dropout sigue activo, contrato §2.4).
+- **`configs/experiments/unet_film.yaml`:** `lr: 8e-4 → 3e-5` (hiperparámetro
+  por-variante; datos/split/seeds/loss/métricas siguen idénticos al baseline).
+
+### Verificación
+- [x] Overfit de 1 muestra baja la loss de forma monótona y estable, con la config
+      real del YAML (`h_dim=64`, `lr=3e-5`): `train_loss` E1=5.26 → E40=0.55,
+      `sf_rmse` 0.31 → 0.036. Antes: divergía a millones.
+- [x] `pytest tests/ -m "not slow"` en verde (135 passed), incl. `test_mc_dropout_active`.
+- [ ] **Pendiente (Fase 5.3, GPU + confirmación del usuario):** corrida multi-seed
+      real ≥3 seeds y comprobar `val_sf_r2` cercano al baseline en datos completos.
+
+<details><summary>Reporte original (histórico)</summary>
+
+**Prioridad:** MEDIA  
+**Estimado:** 2-4 horas  
+**Componente:** `src/fno_co2/models/variants/unet_film.py` + training
+
+### Problema
+Incluso con inicialización Kaiming y arquitectura correcta, el modelo converge lentamente:
+- Seed 42 (128 hidden): `val_sf_r2 = 0.116` después de 1 época
+- Seed 42 (64 hidden): `val_sf_r2 = 0.085`
+- Comparación: baseline consigue `val_sf_r2 = 0.994`
+
+### Raíz Causa Probable
+Uno de:
+1. FiLM modulation aplicada en lugar subóptimo
+2. Escalado de gradientes en el decoder
+3. Skip connections no siendo aprovechadas
+4. Loss landscape más compleja que el FNO baseline
+
+### Verificación
+- [ ] Visualizar activaciones
+- [ ] Probar FiLM en diferentes puntos
+- [ ] Comparar gradientes entre U-Net y baseline
+- [ ] Intentar arquitectura simplificada
+
+</details>
+

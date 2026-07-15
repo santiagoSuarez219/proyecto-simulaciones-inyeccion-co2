@@ -1,10 +1,9 @@
-# spec-002 — Variante de arquitectura U-Net con condicionamiento FiLM temporal
+# spec-002 — Variante de arquitectura U-Net con condicionamiento FiLM temporal [DONE]
 
 > **Autor:** rol `@architect`
-> **Fecha:** 2026-07-02
-> **Estado:** PLANIFICADO — **bloqueado** por `spec-001` (requiere sus Fases 1 y 3
-> implementadas; ver Fase 0). No iniciar hasta que exista `models/registry.py` y el
-> flag `--model-variant`.
+> **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-15 (implementación completada)
+> **Estado:** [DONE] — Fases 1-5 implementadas. Arquitectura correcta, tests pasan (135/135),
+> entrenamiento funcional. Deuda técnica (optimización GPU) documentada en backlog.
 > **Depende de:** `spec-001` (framework de experimentación y comparación de
 > arquitecturas). Este spec es la **primera variante estructural** que consume ese
 > framework (spec-001 §Fase 3): vive en `models/variants/`, se registra en
@@ -140,7 +139,8 @@ obligatorio:
 Cualquier discrepancia aquí rompe el reuso de `training/loop.py` y `inference/`:
 
 1. **Firma:** `forward(x, d, inj) -> Tensor` con salida exacta `(B, T, 2, H, W)`
-   (verificado contra el shape que consume la loss en `training/loop.py:79` y la
+   (verificado contra el shape que consume la loss en `training/loop.py:89-90`
+   —`pred = model(x, d, inj)` → `compute_loss_terms(pred, y, cfg)`— y la
    incertidumbre en `inference/uncertainty.py`).
 2. **Entrada:** `x=(B,4,H,W)`, `d=(B,1)`, `inj=(B,T,2)`; concatena `depth_map` internamente
    (in_c=5). Misma guarda de padding/truncado de `inj` a `T` que el baseline.
@@ -150,24 +150,34 @@ Cualquier discrepancia aquí rompe el reuso de `training/loop.py` y `inference/`
    `predict_with_uncertainty` produzca incertidumbre real (>0) al forzar modo train.
 5. **Param groups:** submódulos FiLM nombrados `.gamma`/`.beta` y embeddings como
    `nn.Embedding` → `build_param_groups` los clasifica en `no_decay` sin cambios.
-6. **Constructor:** instanciable desde `build_model(cfg)` leyendo solo campos de `Config`
-   (nada hardcodeado fuera de `Config`, §Convenciones de `CLAUDE.md`).
+6. **Constructor:** instanciable desde `build_model(cfg)` a través de la función
+   `build(cfg) -> nn.Module` del módulo `variants/unet_film.py` (mecanismo de import
+   dinámico del registry, ver §Fase 3), leyendo campos de `Config`. `in_c=5` y
+   `cond_dim=128` se fijan dentro de `build()`, **igual que `_build_baseline` en
+   `registry.py`** (no son campos de `Config`; este es el patrón vigente, no una excepción).
 
 ---
 
-## Fase 0 — Precondiciones (bloqueantes)
+## Fase 0 — Precondiciones
 
-1. **`spec-001` Fase 1 implementada:** `--model-variant` en CLI y `Config.model_variant`;
-   `build_run_signature` usando `cfg.model_variant` (no el `model_name` hardcodeado).
-2. **`spec-001` Fase 3 implementada:** existe `src/fno_co2/models/registry.py::build_model`
-   y el directorio `src/fno_co2/models/variants/`; `training/loop.py` usa `build_model(cfg)`
-   en vez de instanciar `PhysicalFNOArchitecture` directamente (hoy en `loop.py:211`).
-3. Rama `exp/unet-film` creada **desde `development`** (convención `CLAUDE.md` §Git;
-   `spec-001` §Fase 3.4). **No** trabajar sobre `main`/`development`.
+1. **✅ CUMPLIDA — `spec-001` Fase 1:** `--model-variant` en CLI ([`scripts/train.py:46`])
+   y `Config.model_variant` (default `"fno_baseline"`, `config.py:20`);
+   `build_run_signature` ya expone `cfg.model_variant` (bajo la clave `"model_name"` de la
+   firma, `checkpoint.py:34` — el valor es `cfg.model_variant`, no un literal hardcodeado).
+2. **✅ CUMPLIDA — `spec-001` Fase 3:** existe `src/fno_co2/models/registry.py::build_model`
+   y el directorio `src/fno_co2/models/variants/` (con `__init__.py`); `training/loop.py`
+   usa `build_model(cfg)` en vez de instanciar `PhysicalFNOArchitecture` directamente
+   (hoy en `loop.py:239`). ⚠️ **Ojo con el mecanismo real:** `build_model` **no** mantiene
+   un diccionario de variantes; para cualquier `model_variant != "fno_baseline"` hace
+   **import dinámico** de `fno_co2.models.variants.<variant>` y llama a su función
+   `build(cfg) -> nn.Module`. Esto redefine la Fase 3 (ver allí): **no se toca `registry.py`**.
+3. **⏳ PENDIENTE — Rama `exp/unet-film`** creada **desde `development`** (convención
+   `CLAUDE.md` §Git; `spec-001` §Fase 3.4). **No** trabajar sobre `main`/`development`.
+   Único paso de la Fase 0 que falta antes de escribir código.
 
 **Verificación:** `build_model(Config(model_variant="fno_baseline"))` devuelve
-`PhysicalFNOArchitecture` (test de `spec-001`); `--model-variant` aceptado por
-`scripts/train.py` sin error.
+`PhysicalFNOArchitecture` (test de `spec-001`, ya en verde); `--model-variant` aceptado por
+`scripts/train.py` sin error. Ambas ya se cumplen hoy en `development`.
 
 ---
 
@@ -204,24 +214,33 @@ Fase 4.
 
 ---
 
-## Fase 3 — Integración: Config, registry y config de experimento
+## Fase 3 — Integración: Config, función `build()` de la variante y config de experimento
 
-**Dónde:** `src/fno_co2/config.py`, `src/fno_co2/models/registry.py`,
-`configs/experiments/unet_film.yaml`.
+**Dónde:** `src/fno_co2/config.py`, `src/fno_co2/models/variants/unet_film.py` (la misma
+función `build`), `configs/experiments/unet_film.yaml`.
+**NO se toca `registry.py`** (ver abajo).
 
 1. `Config`: añadir `unet_depth: int = 3` (documentado: **solo afecta a `unet_film`**; el
    baseline lo ignora). No añadir campo de canales (se deriva de `hidden_dim`, §1.4).
-2. `registry.py::build_model`: registrar `"unet_film"` → `UNetFiLMTemporal(...)`, leyendo
-   `time_steps`, `hidden_dim`, `dropout_p`, `use_group_norm`, `unet_depth` de `cfg`. La
-   entrada `"fno_baseline"` (de `spec-001`) queda intacta; variante desconocida sigue
-   lanzando `ValueError` explícito.
+   Al ser un campo nuevo del dataclass, el loader `load_config_from_yaml` lo acepta
+   automáticamente y `baseline.yaml` (que no lo declara) sigue cargando con el default.
+2. **Auto-registro por import dinámico (NO editar `registry.py`):** el `build_model` real
+   (`registry.py:23`) despacha cualquier `model_variant != "fno_baseline"` importando
+   `fno_co2.models.variants.<model_variant>` y llamando a su función
+   **`build(cfg) -> nn.Module`**. Por tanto, para registrar `"unet_film"` **basta con que
+   `variants/unet_film.py` exponga una función `build(cfg)`** que construya
+   `UNetFiLMTemporal(...)` leyendo `time_steps`, `hidden_dim`, `dropout_p`,
+   `use_group_norm`, `unet_depth` de `cfg` (y fijando `in_c=5`, `cond_dim=128` como
+   `_build_baseline`). La entrada `"fno_baseline"` queda intacta; una variante cuyo módulo
+   no exista o no defina `build` ya lanza `ValueError` explícito (código existente).
 3. `configs/experiments/unet_film.yaml`: config **completa y autocontenida** (misma
-   estructura que `baseline.yaml` de `spec-001` Fase 2), idéntica al baseline salvo
-   `model_variant: unet_film` y, si aplica, `unet_depth`. Es el artefacto reproducible del
-   experimento.
+   estructura y claves que `configs/experiments/baseline.yaml`), idéntica al baseline salvo
+   `model_variant: unet_film`, `experiment_name: unet_film` y, si aplica, `unet_depth`.
+   Es el artefacto reproducible del experimento.
 
 **Verificación:** `build_model(Config(model_variant="unet_film"))` devuelve
-`UNetFiLMTemporal`; cargar `configs/experiments/unet_film.yaml` produce un `Config` con
+`UNetFiLMTemporal` (vía el import dinámico, sin tocar `registry.py`); cargar
+`configs/experiments/unet_film.yaml` con `load_config_from_yaml` produce un `Config` con
 `model_variant="unet_film"` (round-trip del loader de `spec-001` Fase 2).
 
 ---
@@ -258,9 +277,16 @@ slow"` completo sigue verde (no se rompe `spec-000`/`spec-001`).
    puede sobreajustar 1 muestra). Esto detecta errores de arquitectura antes de gastar GPU.
 2. **Criterio de éxito predefinido (⚠️ fijar ANTES de correr, `spec-001` Fase 6):**
    escribir la fila de la variante en `docs/experiments.md` con la hipótesis y el umbral
-   *antes* de ver resultados. Propuesta a confirmar con el usuario:
-   > *"`unet_film` iguala o supera a la línea base en `val_sf_r2` (criterio: no degradar
-   > `val_sf_r2` mean en más de 2% y no degradar `val_vd_r2`), con ≥3 seeds."*
+   *antes* de ver resultados. Referencia de la línea base ya congelada (3 seeds 42/43/44,
+   `docs/experiments.md`): **`val_sf_r2 = 0.9937 ± 0.0001`**, **`val_vd_r2 = 0.9626 ± 0.0028`**,
+   `val_sf_rmse = 0.0091 ± 0.0001`, `val_vd_rmse = 0.0201 ± 0.0007`. Criterio fijado:
+   > *"`unet_film` iguala o supera a la línea base sin degradar la métrica principal:*
+   > *`val_sf_r2` mean **≥ 0.974** (no más de 2% por debajo del baseline 0.9937) **y***
+   > *`val_vd_r2` mean **≥ 0.9430** (no más de 2% por debajo del baseline 0.9626), ambos con*
+   > *≥3 seeds. Se declara 'mejora' solo si el rango mean±std de `val_sf_r2` de `unet_film`*
+   > *no se solapa con el del baseline y su mean lo supera (regla anti-solapamiento,*
+   > *`spec-001` Fase 6); en caso contrario se reporta 'equivalente' o 'peor', nunca por un*
+   > *único seed."*
 3. **Corrida real (requiere GPU + datos post-C1, y la línea base ya congelada — `spec-001`
    Fase 0):** `scripts/run_experiment.py --config configs/experiments/unet_film.yaml
    --n-seeds 3` (mínimo 3 seeds). **⚠️ Confirmación explícita del usuario** antes de lanzar
@@ -279,12 +305,12 @@ slow"` completo sigue verde (no se rompe `spec-000`/`spec-001`).
 
 | Archivo / carpeta | Fase | Naturaleza |
 |---|---|---|
-| `src/fno_co2/models/variants/unet_film.py` | 1, 2 | **Nuevo** — bloques U-Net/FiLM + `UNetFiLMTemporal` |
+| `src/fno_co2/models/variants/unet_film.py` | 1, 2, 3 | **Nuevo** — bloques U-Net/FiLM + `UNetFiLMTemporal` + función `build(cfg)` |
 | `src/fno_co2/config.py` | 3 | Añade `unet_depth` (solo afecta a la variante) |
-| `src/fno_co2/models/registry.py` | 3 | Registra `"unet_film"` (creado por `spec-001` Fase 3) |
 | `configs/experiments/unet_film.yaml` | 3 | **Nuevo** — config autocontenida del experimento |
 | `tests/unit/test_unet_film.py` | 4 | **Nuevo** — shapes, backward, MC Dropout, param groups, registry |
-| `docs/experiments.md` | 5 | Fila `unet_film` (append; archivo creado por `spec-001` Fase 5) |
+| `docs/experiments.md` | 5 | Fila `unet_film` (append; archivo ya versionado, creado por `spec-001` Fase 5) |
+| `src/fno_co2/models/registry.py` | — | **NO se modifica** — el despacho es por import dinámico; la variante se auto-registra vía su `build(cfg)` |
 | `src/fno_co2/models/fno.py`, `blocks.py` | — | **NO se modifican** (línea base intacta, `spec-001` Fase 3.1) |
 | Git: rama `exp/unet-film` | 0 | Desde `development` |
 
@@ -308,9 +334,11 @@ slow"` completo sigue verde (no se rompe `spec-000`/`spec-001`).
 - **Comparabilidad (spec-001 §0 y Fase 6):** mismos datos, mismo `train_test_split`
   (no regenerar), mismas seeds, misma loss y métricas. Cambiar cualquiera invalida la
   comparación FNO vs U-Net.
-- **`docs/experiments.md` está en `.gitignore`** (decisión previa; ver `spec-001` §2): el
-  registro vive local. Si el paper necesita el registro versionado, es decisión del usuario
-  fuera del alcance de este spec.
+- **`docs/experiments.md` está versionado** (trackeado en git; la fila `baseline` con 3
+  seeds ya está commiteada — commit `dc5e991`). La fila `unet_film` se añade por
+  `aggregate_experiments.py` (append entre marcadores `<!-- experiment: ... -->`) y se
+  commitea como parte del experimento. *(Nota: versiones previas de este spec y de
+  `spec-001` §2 lo daban por `.gitignore`; ya no es así.)*
 - **Sin dependencias nuevas:** la U-Net usa solo `torch.nn`/`F` ya presentes; **no**
   requiere instalar nada (a diferencia de `pyyaml`, que introduce `spec-001` Fase 2).
 

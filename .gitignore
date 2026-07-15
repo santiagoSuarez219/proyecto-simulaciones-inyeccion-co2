@@ -50,3 +50,6 @@ reports/subset_split.csv
 
 *.log
 sql/simulaciones.db
+
+# scripts/train.py escribe por defecto en output/ (singular); nunca versionar
+/output/
