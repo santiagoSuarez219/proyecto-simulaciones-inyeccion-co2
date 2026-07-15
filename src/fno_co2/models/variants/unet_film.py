@@ -123,6 +123,23 @@ class UNetFiLMTemporal(nn.Module):
             nn.Linear(cond_dim, cond_dim),
         )
 
+        self._init_weights()
+
+    def _init_weights(self):
+        """Inicialización Kaiming (He) para arquitectura profunda."""
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.GroupNorm):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
     def forward(self, x, d, inj):
         """
         x: (B, 4, H, W) — propiedades estáticas
