@@ -2,10 +2,11 @@
 
 > **Autor:** rol `@architect`
 > **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-16 (revisión contra el estado real del
-> repo tras cerrar `spec-001`/`spec-002`/`spec-003`; Fase 0 y Fase 1 completadas)
-> **Estado:** `[IN PROGRESS]` — Fase 0 (precondiciones) y Fase 1 (esquema de campaña +
-> preflight) completas y verificadas en rama `feature/campaign-orchestration`. En curso:
-> Fase 2 (captura de reproducibilidad).
+> repo tras cerrar `spec-001`/`spec-002`/`spec-003`; Fases 0–3 completadas)
+> **Estado:** `[IN PROGRESS]` — Fases 0–3 (precondiciones, esquema+preflight,
+> reproducibilidad, runner de campaña con resume) completas y verificadas en rama
+> `feature/campaign-orchestration`, sin entrenamiento real (Fase 7 pendiente, gated por el
+> usuario). En curso: Fase 4 (abstracción de tracking).
 > **Depende de:** `spec-001` (framework de experimentación: `--model-variant`,
 > `build_model`, loader YAML, `run_experiment.py` multi-seed, `aggregate_experiments.py`,
 > `docs/experiments.md`) — **entregado**. Consume las variantes de `spec-002` (U-Net,
@@ -370,23 +371,50 @@ calculado en Fase 0 (`f51dfe25...529c95d`) y el `commit_hash` coincide con el co
 
 ---
 
-## Fase 3 — Runner de campaña (cola secuencial + resume)
+## Fase 3 — Runner de campaña (cola secuencial + resume) — ✅ COMPLETA (2026-07-16)
 
-**Dónde:** `scripts/run_campaign.py`.
+**Dónde:** `src/fno_co2/experiments/campaign_runner.py` (nuevo, lógica), `scripts/run_campaign.py`
+(completado: `--resume`, `--yes`, ejecución real).
 
-1. Expansión de la matriz, ejecución secuencial **reutilizando `scripts/run_experiment.py`
-   por variante** (que ya orquesta las seeds vía subproceso a `train.py`; §1.3),
-   aislamiento de fallos, marcadores `run.done`, `campaign_state.json` atómico, `--resume`,
-   `--dry-run`, gate de confirmación (§1.3). Fijar en esta fase cómo se logra el resume por
-   seed (comprobar `run.done` antes de lanzar vs. `--resume` mínimo en `run_experiment.py`) y
-   la ruta de salida anidada (`experiment_name="campaigns/<name>/<variant>"`).
-2. Directorios de salida `outputs/campaigns/<name>/<variant>/seed_<s>/`.
-3. Logging estructurado con `get_logger`.
+1. ✅ **Decisión de diseño fijada:** `run_campaign()` filtra, **por variante**, las seeds ya
+   completas (según `run.done` + firma compatible) y llama a `run_experiment.run_experiment()`
+   **una vez por variante** con solo las seeds pendientes — no una vez por seed (eso
+   duplicaría/pisaría el `run_manifest.json` de `run_experiment.py` en cada llamada) ni
+   reimplementa el subproceso a `train.py`. `run_experiment.py` **queda sin modificar**; el
+   resume vive enteramente en la capa de campaña (`run.done` se comprueba *antes* de invocar
+   `run_experiment`, no dentro de él).
+2. ✅ **Firma de corrida reutilizada, no reinventada:** el "firma compatible" del `run.done`
+   usa exactamente `training/checkpoint.py::build_run_signature` +
+   `check_resume_compatibility` (`spec-001` F1) — si la config de una variante cambia después
+   de completar una seed (p. ej. otro `hidden_dim`), esa seed se re-ejecuta en vez de darse
+   por buena silenciosamente.
+3. ✅ **Ruta de salida anidada confirmada:** pasando `experiment_name="campaigns/<name>/<variant>"`
+   a `run_experiment_fn`, `train.py::resolve_config` (sin tocarlo) deriva exactamente
+   `outputs/campaigns/<name>/<variant>/seed_<s>/` — confirmado end-to-end en los tests.
+4. ✅ **Aislamiento de fallos:** una seed con `returncode != 0` (vía `run_experiment.py`, que
+   ya lo maneja) queda `failed` en `campaign_state.json`, sin `run.done`, y no aborta las
+   demás seeds/variantes.
+5. ✅ **`campaign_state.json` atómico** (reutiliza `atomic_write_json` de Fase 2), escrito tras
+   cada cambio de estado (antes y después de cada llamada a `run_experiment_fn`).
+6. ✅ **Guarda "sin `--resume` no pisa salidas existentes":** `NoResumeOutputExistsError` si
+   ya hay contenido en algún `job_dir` y no se pasó `resume=True` — exige `--resume` o limpiar
+   manualmente (`CLAUDE.md` §Acciones prohibidas).
+7. ✅ **Gate de confirmación real:** `scripts/run_campaign.py` sin `--dry-run` exige `--yes`
+   explícito (verificado: sale con código 2 y mensaje claro si falta).
+8. ✅ Logging estructurado con `get_logger` en todo el flujo.
 
-**Verificación:** `tests/unit/test_run_campaign.py` — con `train.py` **mockeado**
-(subproceso simulado): la cola corre en orden; una corrida `failed` no aborta el resto;
-`--resume` salta las `run.done`; el estado se escribe atómicamente. (Integración real:
-Fase 7.)
+**Verificación (ejecutada):** `tests/unit/test_run_campaign.py` — **9 tests, todos en
+verde**, con `train.py` **mockeado** (un script Python real minimal, invocado como subproceso
+genuino vía el `run_experiment.py` **real**, sin gastar GPU): la cola corre y escribe
+`run.done`/`campaign_state.json`; una seed fallida (`999`, hardcodeada para fallar en el fake
+script) no aborta el resto; `--resume` salta seeds con firma compatible y NO vuelve a invocar
+`run_experiment_fn` si no hay nada pendiente; `--resume` re-ejecuta una seed `failed` pero
+salta la ya completa; `--resume` re-ejecuta si la firma quedó incompatible (config cambiada);
+`campaign_state.json` no deja `.tmp` residual; sin `--resume`, una segunda corrida sobre
+salidas existentes lanza `NoResumeOutputExistsError`; `build_parser()` reconoce `--resume`/
+`--yes`; sin `--yes` el script rechaza explícito (exit 2) antes de tocar `run_experiment.py`.
+Verificado manualmente: `run_campaign.py --dry-run`/sin `--yes` contra la campaña real siguen
+funcionando como en Fase 1. (Integración real contra GPU: Fase 7.)
 
 ---
 
@@ -465,7 +493,8 @@ demanda.
 | `configs/campaigns/<name>.yaml` | 1 | **Nuevo** — declaración de la matriz arch × seeds |
 | `src/fno_co2/experiments/campaign_config.py` | 1 | **Nuevo** — carga/validación del YAML + preflight |
 | `src/fno_co2/experiments/reproducibility.py` | 2 | **Nuevo** — git/env/checksum/snapshots + manifiesto |
-| `scripts/run_campaign.py` | 1, 3 | **Nuevo** — orquestador (cola secuencial, resume, dry-run) |
+| `src/fno_co2/experiments/campaign_runner.py` | 3 | **Nuevo** — cola secuencial, resume, aislamiento de fallos, estado atómico |
+| `scripts/run_campaign.py` | 1, 3 | **Nuevo** — CLI (preflight/dry-run F1; `--resume`/`--yes`/ejecución real F3) |
 | `src/fno_co2/experiments/tracking.py` | 4 | **Nuevo** — `ExperimentTracker` + FileTracker + adaptador |
 | `scripts/aggregate_campaign.py` (o wrapper) | 5 | **Nuevo** — itera `aggregate_experiments.py` (sin modificarlo) + veredicto por criterio estructurado + reporte multi-variante |
 | `outputs/campaigns/` | 3, 5 | Runtime — estado, corridas, reproducibility, reporte |

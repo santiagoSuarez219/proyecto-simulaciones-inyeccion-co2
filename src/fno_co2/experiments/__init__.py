@@ -18,6 +18,10 @@ from fno_co2.experiments.reproducibility import (
     capture_reproducibility,
     copy_config_snapshots,
 )
+from fno_co2.experiments.campaign_runner import (
+    NoResumeOutputExistsError,
+    run_campaign,
+)
 
 __all__ = [
     "BASE_SEED",
@@ -36,4 +40,6 @@ __all__ = [
     "capture_git_info",
     "capture_reproducibility",
     "copy_config_snapshots",
+    "NoResumeOutputExistsError",
+    "run_campaign",
 ]

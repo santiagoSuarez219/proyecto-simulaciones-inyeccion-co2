@@ -28,3 +28,13 @@ def train_script():
 @pytest.fixture(scope="session")
 def aggregate_script():
     return _load_script_module("_aggregate_script_under_test", "aggregate_experiments.py")
+
+
+@pytest.fixture(scope="session")
+def run_experiment_script():
+    return _load_script_module("_run_experiment_script_under_test", "run_experiment.py")
+
+
+@pytest.fixture(scope="session")
+def run_campaign_script():
+    return _load_script_module("_run_campaign_script_under_test", "run_campaign.py")

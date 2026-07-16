@@ -1,19 +1,34 @@
 #!/usr/bin/env python
 """Orquestador de campañas de experimentos (spec-004).
 
-Fase 1 (este entregable): solo `--dry-run` — carga el YAML de campaña, corre el
-preflight (`fno_co2.experiments.campaign_config.run_preflight`) e imprime la cola
-`variante x seed` sin entrenar nada. La ejecución real (cola secuencial en 1 GPU,
-resume, aislamiento de fallos, gate de confirmación) se implementa en la Fase 3.
+`--dry-run`: solo preflight + cola impresa, no entrena. Sin `--dry-run`: ejecuta de verdad
+la matriz `variantes x seeds`, secuencialmente en 1 GPU, reutilizando
+`scripts/run_experiment.py` por variante (spec-004 Fase 3). Requiere `--yes` — gate de
+confirmación explícita (`CLAUDE.md` §Despliegue): nunca lanza GPU sin consentimiento.
 """
 import argparse
+import importlib.util
 import sys
 from pathlib import Path
 
 from fno_co2.experiments.campaign_config import load_campaign_from_yaml, run_preflight
+from fno_co2.experiments.campaign_runner import NoResumeOutputExistsError, run_campaign
 from fno_co2.utils import get_logger
 
 logger = get_logger(__name__)
+
+SCRIPTS_DIR = Path(__file__).resolve().parent
+
+
+def _load_run_experiment_module():
+    """`scripts/` no es un paquete (sin __init__.py); se carga por ruta de archivo, igual
+    que el fixture `run_experiment_script` de los tests (tests/unit/conftest.py)."""
+    spec = importlib.util.spec_from_file_location(
+        "_run_experiment_module_for_campaign", SCRIPTS_DIR / "run_experiment.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def build_parser():
@@ -21,13 +36,22 @@ def build_parser():
         description="Orquesta una campaña de experimentos (matriz arquitectura x seeds)"
     )
     p.add_argument("--config", required=True, help="YAML de campaña (configs/campaigns/<name>.yaml)")
+    p.add_argument("--dry-run", action="store_true", help="Solo preflight: valida e imprime la cola, no entrena")
     p.add_argument(
-        "--dry-run", action="store_true",
-        help="Solo preflight: valida e imprime la cola, no entrena (único modo disponible en Fase 1)",
+        "--resume", action="store_true",
+        help="Reanuda: salta seeds con run.done de firma compatible; re-ejecuta failed/incompletas",
+    )
+    p.add_argument(
+        "--yes", action="store_true",
+        help="Confirma explícitamente la ejecución real (gate de confirmación, requerido sin --dry-run)",
     )
     p.add_argument(
         "--split-path", default="reports/train_test_split_80_20.csv",
         help="CSV del split usado para la guarda de comparabilidad (checksum)",
+    )
+    p.add_argument(
+        "--extra-args", default=None,
+        help="Argumentos adicionales pasados tal cual a train.py, ej: '--epochs 1'",
     )
     return p
 
@@ -55,12 +79,32 @@ def main():
 
     logger.info("Preflight OK.")
 
-    if not args.dry_run:
+    if args.dry_run:
+        return
+
+    if not args.yes:
         logger.error(
-            "La ejecución real de la campaña (cola secuencial, resume, gate de confirmación) "
-            "se implementa en la Fase 3 de spec-004. Por ahora usa --dry-run."
+            "Ejecución real solicitada sin --yes. Por seguridad (CLAUDE.md §Despliegue), "
+            "correr la campaña de verdad exige confirmación explícita: agrega --yes."
         )
         sys.exit(2)
+
+    run_experiment_module = _load_run_experiment_module()
+    extra_args = args.extra_args.split() if args.extra_args else []
+
+    try:
+        run_campaign(
+            campaign,
+            run_experiment_module.run_experiment,
+            train_script=str(SCRIPTS_DIR / "train.py"),
+            resume=args.resume,
+            extra_args=extra_args,
+        )
+    except NoResumeOutputExistsError as exc:
+        logger.error(str(exc))
+        sys.exit(1)
+
+    logger.info("Campaña completa.")
 
 
 if __name__ == "__main__":
