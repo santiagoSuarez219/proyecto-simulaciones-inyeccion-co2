@@ -19,6 +19,7 @@ from typing import Callable
 from fno_co2.config import Config, load_config_from_yaml
 from fno_co2.experiments.campaign_config import CampaignConfig
 from fno_co2.experiments.reproducibility import atomic_write_json
+from fno_co2.experiments.tracking import build_tracker
 from fno_co2.training.checkpoint import build_run_signature, check_resume_compatibility
 from fno_co2.utils import get_logger
 
@@ -92,6 +93,21 @@ def _set_job_status(state: dict, variant_name: str, seed: int, status: str, **ex
     entry.update(extra)
 
 
+_TRACKED_ARTIFACTS = ("metrics_history.json", "best.pt", "config.json")
+
+
+def _consolidate_tracker(backend: str, job_dir: Path, cfg: Config, seed: int) -> None:
+    """No duplica métricas (eso ya lo escribe `training/loop.py`); solo consolida params +
+    rutas de artefactos de una corrida completa vía el `ExperimentTracker` de Fase 4."""
+    tracker = build_tracker(backend, job_dir, run_name=f"{job_dir.parent.name}_seed{seed}")
+    tracker.log_params({"seed": seed, "model_variant": cfg.model_variant, "lr": cfg.lr})
+    for artifact_name in _TRACKED_ARTIFACTS:
+        artifact_path = job_dir / artifact_name
+        if artifact_path.exists():
+            tracker.log_artifact(artifact_path)
+    tracker.finish()
+
+
 def run_campaign(
     campaign: CampaignConfig,
     run_experiment_fn: RunExperimentFn,
@@ -162,14 +178,16 @@ def run_campaign(
             status = seed_entry["status"]
             _set_job_status(state, variant.name, seed, status)
             if status == "completed":
+                job_dir = _job_dir(campaign_dir, variant.name, seed)
                 atomic_write_json(
-                    _job_dir(campaign_dir, variant.name, seed) / "run.done",
+                    job_dir / "run.done",
                     {
                         "run_signature": signature,
                         "returncode": seed_entry.get("returncode"),
                         "finished_at": seed_entry.get("finished_at"),
                     },
                 )
+                _consolidate_tracker(campaign.tracking_backend, job_dir, cfg, seed)
             else:
                 logger.error(f"{variant.name}/seed_{seed}: corrida fallida (status={status})")
         atomic_write_json(campaign_dir / "campaign_state.json", state)

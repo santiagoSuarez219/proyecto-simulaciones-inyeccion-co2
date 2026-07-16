@@ -85,6 +85,14 @@ def test_run_campaign_runs_queue_and_writes_run_done(
     assert (campaign_dir / "baseline" / "seed_1" / "run.done").exists()
     assert (campaign_dir / "baseline" / "seed_2" / "run.done").exists()
 
+    # Fase 4: cada seed completa consolida su tracker (FileTracker por defecto, sin deps)
+    tracker_paths = json.loads(
+        (campaign_dir / "baseline" / "seed_1" / "tracker_paths.json").read_text(encoding="utf-8")
+    )
+    assert tracker_paths["params"]["seed"] == 1
+    assert tracker_paths["params"]["model_variant"] == "fno_baseline"
+    assert any("metrics_history.json" in path for path in tracker_paths["artifacts"])
+
     state_on_disk = json.loads((campaign_dir / "campaign_state.json").read_text(encoding="utf-8"))
     assert state_on_disk == state
 

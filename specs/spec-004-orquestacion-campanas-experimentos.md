@@ -2,11 +2,11 @@
 
 > **Autor:** rol `@architect`
 > **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-16 (revisión contra el estado real del
-> repo tras cerrar `spec-001`/`spec-002`/`spec-003`; Fases 0–3 completadas)
-> **Estado:** `[IN PROGRESS]` — Fases 0–3 (precondiciones, esquema+preflight,
-> reproducibilidad, runner de campaña con resume) completas y verificadas en rama
+> repo tras cerrar `spec-001`/`spec-002`/`spec-003`; Fases 0–4 completadas)
+> **Estado:** `[IN PROGRESS]` — Fases 0–4 (precondiciones, esquema+preflight,
+> reproducibilidad, runner de campaña con resume, tracking) completas y verificadas en rama
 > `feature/campaign-orchestration`, sin entrenamiento real (Fase 7 pendiente, gated por el
-> usuario). En curso: Fase 4 (abstracción de tracking).
+> usuario). En curso: Fase 5 (agregación y reporte cross-arquitectura).
 > **Depende de:** `spec-001` (framework de experimentación: `--model-variant`,
 > `build_model`, loader YAML, `run_experiment.py` multi-seed, `aggregate_experiments.py`,
 > `docs/experiments.md`) — **entregado**. Consume las variantes de `spec-002` (U-Net,
@@ -418,18 +418,38 @@ funcionando como en Fase 1. (Integración real contra GPU: Fase 7.)
 
 ---
 
-## Fase 4 — Abstracción de tracking
+## Fase 4 — Abstracción de tracking — ✅ COMPLETA (2026-07-16)
 
-**Dónde:** `src/fno_co2/experiments/tracking.py` (nuevo).
+**Dónde:** `src/fno_co2/experiments/tracking.py` (nuevo), `campaign_runner.py` (integración).
 
-1. Interfaz `ExperimentTracker` + `FileTracker` (siempre) + adaptador opcional
-   `MlflowTracker`/`WandbTracker` (§1.5). Selección por `campaign.tracking.backend`.
-2. Degradación grácil a `file` si el backend no está instalado (warning, no aborta).
-3. **Confirmar e instalar** MLflow/W&B solo si el usuario elige ese backend (dependencia
-   nueva).
+1. ✅ Interfaz `ExperimentTracker` (`log_params`/`log_metrics`/`log_artifact`/`finish`) +
+   `FileTracker` (siempre activo, cero deps: no duplica `metrics_history.json`/`config.json`
+   de `training/loop.py`, solo consolida params + rutas de artefactos en
+   `<job_dir>/tracker_paths.json`) + adaptadores opcionales `MlflowTracker`/`WandbTracker`
+   con **import diferido** (solo al construirse, nunca a nivel de módulo). `build_tracker(
+   backend, run_dir, ...)` selecciona según `campaign.tracking_backend` (decidido en Fase 0:
+   **`file`**, sin dependencias nuevas).
+2. ✅ Degradación grácil: `build_tracker` atrapa `ModuleNotFoundError` al construir
+   `MlflowTracker`/`WandbTracker` y degrada a `FileTracker` con warning — no aborta.
+   (Complementa, no duplica, el chequeo de solo-importabilidad de `run_preflight` §1.2.7:
+   ese es en tiempo de preflight —sin efectos secundarios—, `build_tracker` es en tiempo de
+   ejecución real y si el backend existe, sí construye/arranca el tracker.)
+3. ✅ **No se instaló MLflow ni W&B** — confirmado en Fase 0 que el backend es `file`; el
+   código de los adaptadores existe y es funcional (testeado con la ausencia real de esos
+   paquetes en el entorno), pero instalarlos sigue pendiente de una decisión futura del
+   usuario si se desea dashboard (`CLAUDE.md` §Dependencias).
+4. ✅ **Integrado en `campaign_runner.run_campaign()`:** tras cada seed completada, consolida
+   (`seed`, `model_variant`, `lr` como params + `metrics_history.json`/`best.pt`/`config.json`
+   como artefactos, los que existan) vía el tracker — sin tocar `train.py`/`run_experiment.py`.
 
-**Verificación:** `tests/unit/test_tracking.py` — `FileTracker` consolida rutas sin deps;
-seleccionar un backend ausente degrada a `file` con warning (mockeando el import faltante).
+**Verificación (ejecutada):** `tests/unit/test_tracking.py` — **6 tests, todos en verde**:
+`FileTracker` consolida params/artefactos a `tracker_paths.json` sin dependencias; no duplica
+`metrics_history.json`; `build_tracker("file", ...)` retorna `FileTracker`; seleccionar
+`mlflow`/`wandb` (**ninguno instalado en este entorno — degradación real, no mockeada**)
+degrada a `file` con warning; un backend desconocido también degrada con warning. Además,
+`test_run_campaign.py::test_run_campaign_runs_queue_and_writes_run_done` verifica la
+integración end-to-end: cada seed completada escribe su `tracker_paths.json` junto al
+`run.done`.
 
 ---
 
