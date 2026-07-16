@@ -13,6 +13,7 @@ from pathlib import Path
 
 from fno_co2.experiments.campaign_config import load_campaign_from_yaml, run_preflight
 from fno_co2.experiments.campaign_runner import NoResumeOutputExistsError, run_campaign
+from fno_co2.experiments.reproducibility import capture_reproducibility
 from fno_co2.utils import get_logger
 
 logger = get_logger(__name__)
@@ -53,6 +54,10 @@ def build_parser():
         "--extra-args", default=None,
         help="Argumentos adicionales pasados tal cual a train.py, ej: '--epochs 1'",
     )
+    p.add_argument(
+        "--outputs-root", default="outputs",
+        help="Raíz de salida (default: outputs/); override solo para tests/aislamiento",
+    )
     return p
 
 
@@ -89,6 +94,17 @@ def main():
         )
         sys.exit(2)
 
+    outputs_root = Path(args.outputs_root)
+    campaign_dir = outputs_root / "campaigns" / campaign.campaign_name
+    manifest_path = campaign_dir / "campaign_manifest.json"
+    if manifest_path.exists():
+        logger.info(f"Manifiesto de reproducibilidad ya existe ({manifest_path}); no se recaptura.")
+    else:
+        reproducibility_dir = capture_reproducibility(
+            campaign, outputs_root=outputs_root / "campaigns", split_path=Path(args.split_path),
+        )
+        logger.info(f"Reproducibilidad capturada en {reproducibility_dir} (spec-004 §1.4).")
+
     run_experiment_module = _load_run_experiment_module()
     extra_args = args.extra_args.split() if args.extra_args else []
 
@@ -96,6 +112,7 @@ def main():
         run_campaign(
             campaign,
             run_experiment_module.run_experiment,
+            outputs_root=outputs_root,
             train_script=str(SCRIPTS_DIR / "train.py"),
             resume=args.resume,
             extra_args=extra_args,

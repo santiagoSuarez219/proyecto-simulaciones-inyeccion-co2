@@ -38,3 +38,8 @@ def run_experiment_script():
 @pytest.fixture(scope="session")
 def run_campaign_script():
     return _load_script_module("_run_campaign_script_under_test", "run_campaign.py")
+
+
+@pytest.fixture(scope="session")
+def aggregate_campaign_script():
+    return _load_script_module("_aggregate_campaign_script_under_test", "aggregate_campaign.py")

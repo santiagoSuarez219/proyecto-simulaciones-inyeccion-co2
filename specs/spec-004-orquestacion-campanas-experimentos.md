@@ -2,11 +2,13 @@
 
 > **Autor:** rol `@architect`
 > **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-16 (revisión contra el estado real del
-> repo tras cerrar `spec-001`/`spec-002`/`spec-003`; Fases 0–4 completadas)
-> **Estado:** `[IN PROGRESS]` — Fases 0–4 (precondiciones, esquema+preflight,
-> reproducibilidad, runner de campaña con resume, tracking) completas y verificadas en rama
+> repo tras cerrar `spec-001`/`spec-002`/`spec-003`; Fases 0–5 completadas)
+> **Estado:** `[IN PROGRESS]` — Fases 0–5 (precondiciones, esquema+preflight,
+> reproducibilidad —ahora conectada a la ejecución real—, runner de campaña con resume,
+> tracking, agregación+reporte cross-arquitectura) completas y verificadas en rama
 > `feature/campaign-orchestration`, sin entrenamiento real (Fase 7 pendiente, gated por el
-> usuario). En curso: Fase 5 (agregación y reporte cross-arquitectura).
+> usuario). En curso: Fase 6 (suite de no-regresión, mayormente ya cubierta por las
+> verificaciones de cada fase).
 > **Depende de:** `spec-001` (framework de experimentación: `--model-variant`,
 > `build_model`, loader YAML, `run_experiment.py` multi-seed, `aggregate_experiments.py`,
 > `docs/experiments.md`) — **entregado**. Consume las variantes de `spec-002` (U-Net,
@@ -453,25 +455,55 @@ integración end-to-end: cada seed completada escribe su `tracker_paths.json` ju
 
 ---
 
-## Fase 5 — Agregación y reporte cross-arquitectura
+## Fase 5 — Agregación y reporte cross-arquitectura — ✅ COMPLETA (2026-07-16)
 
-**Dónde:** un envoltorio a nivel campaña (p. ej. `scripts/aggregate_campaign.py` **nuevo**, o
-una función que itere sobre `aggregate_experiments.py` **sin modificarlo** para no romper sus
-tests), `outputs/campaigns/<name>/campaign_report.md` (generado).
+**Dónde:** `src/fno_co2/experiments/campaign_report.py` (nuevo), `scripts/aggregate_campaign.py`
+(nuevo, CLI delgado), `outputs/campaigns/<name>/campaign_report.md` (generado).
 
-1. **[reutiliza]** Agregar seeds por variante y comparar cada variante vs. baseline con test
-   no paramétrico, tamaño de efecto y valores crudos (§1.6.1–2) — **llamando** a
-   `aggregate_experiment`/`compare_groups` existentes, no reimplementándolos.
-2. **[nuevo]** Veredicto por `success_criterion` **estructurado** (`metric`/`op`/`threshold` +
-   `guard`, §1.1): evaluación mecánica cumplido/no-cumplido. Sin conclusiones con < 3 seeds ni
-   rangos mean±std solapados (reutiliza el guardas de `compute_verdict`, `spec-001` Fase 6).
-3. Generar `campaign_report.md` autocontenido (tabla multi-variante vs. baseline + enlaces a
-   `reproducibility/`) + *upsert* por variante en `docs/experiments.md` (mecanismo de
-   marcadores ya existente).
+1. ✅ **[reutiliza]** `aggregate_campaign()` itera todas las variantes de la campaña llamando
+   a `aggregate_module.aggregate_experiment`/`compare_groups` **reales** (cargados por ruta,
+   igual que `run_campaign.py` carga `run_experiment.py`) — no reimplementa la estadística.
+   `scripts/aggregate_experiments.py` queda **sin modificar**.
+2. ✅ **[nuevo]** `evaluate_structured_criterion(success_criterion, agg)`: evaluación
+   **mecánica** `metric op threshold` (+ `guard` opcional) sobre las medias agregadas.
+   `< MIN_SEEDS_FOR_VERDICT` (3) seeds → siempre `"inconcluso"`, sin excepciones. **Nota de
+   diseño (simplificación deliberada):** a diferencia del veredicto informal de
+   `compute_verdict` (que exige que los rangos mean±std no se solapen con el baseline antes
+   de declarar "supera"), la evaluación estructurada compara la media directamente contra un
+   **umbral absoluto ya fijado de antemano** (los criterios de `unet_film`/`fno_axial_attn`
+   en `docs/experiments.md`) — no repite el chequeo de no-solapamiento porque el criterio en
+   sí ya es la barra de rigor pre-registrada, no una comparación relativa contra el baseline.
+3. ✅ `render_campaign_report`/`write_campaign_report` generan `campaign_report.md`
+   autocontenido: tabla resumen (mean±std de las 4 métricas + criterio + veredicto por
+   variante), tabla de comparación estadística vs. baseline (efecto/test/p-valor), enlace a
+   `docs/experiments.md` para el detalle por seed, y sección de reproducibilidad (commit hash,
+   `is_dirty`, split checksum, ruta a `reproducibility/`) leída de `campaign_manifest.json` si
+   existe. `aggregate_campaign()` hace además el *upsert* de cada variante en
+   `docs/experiments.md` reutilizando `render_experiment_section`/`upsert_experiments_doc`
+   sin modificarlos.
 
-**Verificación:** `tests/unit/test_campaign_report.py` — con `metrics_history.json`
-sintéticos de 3 variantes × 3 seeds, el reporte reproduce mean±std manuales, aplica el test
-estadístico y marca correctamente cumplido/no-cumplido según el criterio predefinido.
+**Verificación (ejecutada):** `tests/unit/test_campaign_report.py` — **10 tests, todos en
+verde** — con `metrics_history.json` sintéticos de 3 variantes × 3 seeds (valores elegidos a
+mano para forzar un caso "cumplido" —`unet_film`— y uno "no cumplido" —`fno_axial_attn`,
+guard pasa pero la métrica principal no—): el reporte reproduce mean±std manuales
+(`numpy.mean`/`std(ddof=1)`), aplica Wilcoxon/Mann-Whitney vía `compare_groups` real, marca
+los veredictos correctamente, hace *upsert* de las 3 secciones en `docs/experiments.md`, y
+`evaluate_structured_criterion` cubre por separado: `<3` seeds → inconcluso; criterio de
+texto libre (línea base) → `"N/A"`; fallo de `guard` reportado explícito en el mensaje.
+Verificado manualmente: `aggregate_campaign.py --help` funciona; contra la campaña real sin
+datos (Fase 7 aún no corrida) falla con el mismo `FileNotFoundError` explícito que ya lanza
+`aggregate_experiments.py` (comportamiento esperado y consistente, no un bug).
+
+> **Corrección de un gap detectado durante esta fase:** `capture_reproducibility` (Fase 2)
+> nunca quedó conectada a la ejecución real de la campaña — `scripts/run_campaign.py` jamás
+> la invocaba, así que `campaign_manifest.json`/`reproducibility/split.sha256` **nunca se
+> generaban**, y por lo tanto la guarda de checksum del split (§1.2.5) **nunca podía
+> activarse en la práctica** (el archivo contra el que compara jamás existía). Corregido: al
+> pasar el gate `--yes`, `run_campaign.py` ahora llama a `capture_reproducibility()` una sola
+> vez (si `campaign_manifest.json` no existe ya) antes de correr la cola. De paso se añadió
+> `--outputs-root` al CLI (ya existía como parámetro de `run_campaign()`) para poder testear
+> este flujo completo de punta a punta sin tocar el `outputs/` real del repo
+> (`test_run_campaign_script_with_yes_captures_reproducibility_and_runs`).
 
 ---
 
@@ -516,7 +548,8 @@ demanda.
 | `src/fno_co2/experiments/campaign_runner.py` | 3 | **Nuevo** — cola secuencial, resume, aislamiento de fallos, estado atómico |
 | `scripts/run_campaign.py` | 1, 3 | **Nuevo** — CLI (preflight/dry-run F1; `--resume`/`--yes`/ejecución real F3) |
 | `src/fno_co2/experiments/tracking.py` | 4 | **Nuevo** — `ExperimentTracker` + FileTracker + adaptador |
-| `scripts/aggregate_campaign.py` (o wrapper) | 5 | **Nuevo** — itera `aggregate_experiments.py` (sin modificarlo) + veredicto por criterio estructurado + reporte multi-variante |
+| `src/fno_co2/experiments/campaign_report.py` | 5 | **Nuevo** — evaluación de criterio estructurado + orquesta agregación por variante + reporte |
+| `scripts/aggregate_campaign.py` | 5 | **Nuevo** — CLI delgado, carga `aggregate_experiments.py` por ruta (sin modificarlo) |
 | `outputs/campaigns/` | 3, 5 | Runtime — estado, corridas, reproducibility, reporte |
 | `docs/experiments.md`, `campaign_report.md` | 5 | Append / generado |
 | `pyproject.toml` | 4 | `mlflow` (o `wandb`) **solo si** se elige ese backend (**confirmar**) |

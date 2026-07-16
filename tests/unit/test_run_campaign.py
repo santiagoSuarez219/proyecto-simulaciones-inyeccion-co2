@@ -251,3 +251,42 @@ def test_run_campaign_script_refuses_real_execution_without_yes(run_campaign_scr
     with pytest.raises(SystemExit) as exc_info:
         run_campaign_script.main()
     assert exc_info.value.code == 2
+
+
+def test_run_campaign_script_with_yes_captures_reproducibility_and_runs(
+    run_campaign_script, tmp_path, monkeypatch,
+):
+    """--yes bypassea el gate y ejecuta de verdad. Se reemplaza run_experiment por un
+    stub (sin subproceso real a train.py) para verificar la conexión completa
+    capture_reproducibility -> run_campaign sin gastar GPU ni tocar el repo real."""
+
+    def _fake_run_experiment(**kwargs):
+        return {
+            "experiment_name": kwargs["experiment_name"],
+            "seeds": [
+                {"seed": s, "status": "completed", "returncode": 0, "finished_at": "2026-07-16T00:00:00"}
+                for s in kwargs["seeds"]
+            ],
+        }
+
+    fake_module = type("FakeRunExperimentModule", (), {"run_experiment": staticmethod(_fake_run_experiment)})
+    monkeypatch.setattr(run_campaign_script, "_load_run_experiment_module", lambda: fake_module)
+
+    outputs_root = tmp_path / "outputs"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run_campaign.py",
+            "--config", "configs/campaigns/fno_vs_unet_vs_attn.yaml",
+            "--yes",
+            "--outputs-root", str(outputs_root),
+        ],
+    )
+
+    run_campaign_script.main()
+
+    campaign_dir = outputs_root / "campaigns" / "fno_vs_unet_vs_attn"
+    assert (campaign_dir / "campaign_manifest.json").exists()
+    assert (campaign_dir / "reproducibility" / "split.sha256").exists()
+    assert (campaign_dir / "campaign_state.json").exists()
+    assert (campaign_dir / "baseline" / "seed_42" / "run.done").exists()

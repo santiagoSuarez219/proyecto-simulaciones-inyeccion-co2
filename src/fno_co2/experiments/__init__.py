@@ -29,6 +29,13 @@ from fno_co2.experiments.tracking import (
     WandbTracker,
     build_tracker,
 )
+from fno_co2.experiments.campaign_report import (
+    MIN_SEEDS_FOR_VERDICT,
+    aggregate_campaign,
+    evaluate_structured_criterion,
+    render_campaign_report,
+    write_campaign_report,
+)
 
 __all__ = [
     "BASE_SEED",
@@ -54,4 +61,9 @@ __all__ = [
     "MlflowTracker",
     "WandbTracker",
     "build_tracker",
+    "MIN_SEEDS_FOR_VERDICT",
+    "aggregate_campaign",
+    "evaluate_structured_criterion",
+    "render_campaign_report",
+    "write_campaign_report",
 ]
