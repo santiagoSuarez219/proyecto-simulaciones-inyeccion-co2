@@ -1,14 +1,11 @@
-# spec-004 — Orquestación de campañas de experimentos (matriz arquitectura × seeds)
+# spec-004 — Orquestación de campañas de experimentos (matriz arquitectura × seeds) [IN PROGRESS]
 
 > **Autor:** rol `@architect`
 > **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-16 (revisión contra el estado real del
-> repo tras cerrar `spec-001`/`spec-002`/`spec-003`)
-> **Estado:** PLANIFICADO — **DESBLOQUEADO**. La precondición dura (`spec-001` Fases 1–5)
-> **ya está satisfecha**: `spec-001` está `[DONE]` y sus artefactos existen en el árbol
-> (`scripts/run_experiment.py`, `scripts/aggregate_experiments.py`, loader YAML,
-> `build_model` con discovery por convención, `docs/experiments.md`). Listo para iniciar la
-> Fase 0 → 1. Requiere confirmación del usuario para arrancar (rama nueva) y para la Fase 7
-> (GPU).
+> repo tras cerrar `spec-001`/`spec-002`/`spec-003`; Fase 0 y Fase 1 completadas)
+> **Estado:** `[IN PROGRESS]` — Fase 0 (precondiciones) y Fase 1 (esquema de campaña +
+> preflight) completas y verificadas en rama `feature/campaign-orchestration`. En curso:
+> Fase 2 (captura de reproducibilidad).
 > **Depende de:** `spec-001` (framework de experimentación: `--model-variant`,
 > `build_model`, loader YAML, `run_experiment.py` multi-seed, `aggregate_experiments.py`,
 > `docs/experiments.md`) — **entregado**. Consume las variantes de `spec-002` (U-Net,
@@ -311,35 +308,65 @@ variantes y **añade** el veredicto por criterio estructurado (3) y el reporte c
 
 ---
 
-## Fase 1 — Esquema de campaña + preflight
+## Fase 1 — Esquema de campaña + preflight — ✅ COMPLETA (2026-07-16)
 
 **Dónde:** `configs/campaigns/` (nuevo), `scripts/run_campaign.py` (parcial),
 `src/fno_co2/experiments/campaign_config.py` (nuevo).
 
-1. Definir y cargar el YAML de campaña (§1.1), reutilizando el loader de `spec-001` F2 para
-   las configs por-variante.
-2. Implementar el preflight (§1.2), incluyendo la guarda de checksum del split y el rechazo
-   de < 3 seeds / criterio ausente.
-3. `configs/campaigns/fno_vs_unet_vs_attn.yaml`: primera campaña de ejemplo (baseline +
-   las variantes que existan).
+1. ✅ Definir y cargar el YAML de campaña (§1.1), reutilizando el loader de `spec-001` F2
+   (`load_config_from_yaml`) para las configs por-variante.
+2. ✅ Preflight implementado (`run_preflight`): los 7 puntos de §1.2 — configs cargan,
+   variante despachable por `build_model` (vía `cfg.model_variant`, no `variant.name` —
+   ambos difieren en `baseline`/`fno_baseline`), `seeds >= 3` + `success_criterion` presente
+   salvo `baseline`, datos presentes, **guarda de checksum del split** (aborta si difiere de
+   un `split.sha256` ya registrado), GPU/disco como *warnings* (no abortan), tracking
+   degrada a `file` con warning si el backend pedido no está instalado.
+3. ✅ `configs/campaigns/fno_vs_unet_vs_attn.yaml`: baseline + `unet_film` + `fno_axial_attn`,
+   con los `success_criterion` estructurados ya fijados en `docs/experiments.md`.
+4. ✅ `scripts/run_campaign.py` (parcial, solo `--dry-run`): carga la campaña, corre el
+   preflight, imprime la cola. Sin `--dry-run` rechaza explícito (exit 2) — la ejecución real
+   es Fase 3.
 
-**Verificación:** `tests/unit/test_campaign_config.py` — un YAML válido carga y expande a la
-cola esperada; < 3 seeds, criterio ausente, config inexistente y variante no registrada
-fallan en preflight con error explícito.
+**Verificación (ejecutada):** `tests/unit/test_campaign_config.py` — **13 tests, todos en
+verde**: YAML válido carga y expande la cola esperada; `n_seeds` deriva `42,43,44`; < 3 seeds,
+criterio ausente (no-baseline), config inexistente, variante no registrada, datos ausentes,
+checksum de split distinto y split inexistente fallan explícito; baseline exento de criterio;
+backend de tracking ausente degrada a `file` con warning; el YAML de ejemplo real
+(`fno_vs_unet_vs_attn.yaml`) carga con las 3 variantes y sus criterios. Además, verificado
+manualmente: `run_campaign.py --config configs/campaigns/fno_vs_unet_vs_attn.yaml --dry-run`
+imprime las 9 corridas (3 variantes × 3 seeds) y pasa preflight contra los datos reales del
+repo; sin `--dry-run` sale con código 2 sin ejecutar nada. Suite completa
+(`pytest tests/ -m "not slow"`): **164 passed, 0 failed** (254s).
 
 ---
 
 ## Fase 2 — Captura de reproducibilidad
 
+## Fase 2 — Captura de reproducibilidad — ✅ COMPLETA (2026-07-16)
+
 **Dónde:** `src/fno_co2/experiments/reproducibility.py` (nuevo).
 
-1. Funciones para capturar git hash + dirty, entorno (`pip freeze`, versiones), checksum del
-   split, y copiar snapshots de config (§1.4).
-2. Escribir `campaign_manifest.json` + `reproducibility/` atómicamente.
+1. ✅ `capture_git_info` (hash + `is_dirty` vía `git rev-parse HEAD` / `git status
+   --porcelain`), `capture_environment_info` (Python/torch/CUDA/cudnn/GPU + `pip freeze`),
+   `compute_file_checksum` (reutilizado de `campaign_config.py`, Fase 1) y
+   `copy_config_snapshots` (copia — no referencia — el config de cada variante).
+2. ✅ `capture_reproducibility` orquesta todo y escribe atómicamente (write-to-temp +
+   `Path.replace`, vía `atomic_write_text`/`atomic_write_json`) `outputs/campaigns/<name>/
+   reproducibility/{git.json,environment.txt,split.sha256,configs/}` +
+   `campaign_manifest.json` en `outputs/campaigns/<name>/`.
 
-**Verificación:** `tests/unit/test_reproducibility.py` — con un repo/entorno de prueba, el
-manifiesto contiene hash, checksum y snapshots; el checksum de un CSV conocido coincide con
-el esperado; árbol sucio marca `is_dirty=True`.
+**Verificación (ejecutada):** `tests/unit/test_campaign_reproducibility.py` — **7 tests, todos
+en verde**: hash + árbol limpio/sucio correctos (repo git aislado en `tmp_path`, nunca el
+repo real); `environment.txt` incluye Python/torch/pip freeze; roundtrip atómico texto/JSON
+sin dejar `.tmp` residual; snapshots de config copiados byte-a-byte; `capture_reproducibility`
+end-to-end escribe manifiesto + los 4 artefactos con los valores esperados; árbol sucio se
+refleja en el manifiesto. Verificado manualmente contra el repo real (campaña de ejemplo,
+`outputs_root` de prueba fuera del árbol): `split_checksum` coincide exactamente con el
+calculado en Fase 0 (`f51dfe25...529c95d`) y el `commit_hash` coincide con el commit de Fase 0
+(`c99dd1f`), con `is_dirty=True` correctamente detectado (cambios de Fase 1/2 sin commitear).
+> **Nota:** el nombre original del spec (`test_reproducibility.py`) **colisionaba** con un
+> archivo ya existente de otro spec (M4: determinismo de `DataLoader`/`resolve_device`, sin
+> relación con campañas) — se usó `test_campaign_reproducibility.py` para no pisarlo.
 
 ---
 
@@ -444,7 +471,7 @@ demanda.
 | `outputs/campaigns/` | 3, 5 | Runtime — estado, corridas, reproducibility, reporte |
 | `docs/experiments.md`, `campaign_report.md` | 5 | Append / generado |
 | `pyproject.toml` | 4 | `mlflow` (o `wandb`) **solo si** se elige ese backend (**confirmar**) |
-| `tests/unit/test_campaign_*.py`, `test_reproducibility.py`, `test_tracking.py`, `test_run_campaign.py` | 1–6 | **Nuevos** |
+| `tests/unit/test_campaign_*.py` (incl. `test_campaign_reproducibility.py`), `test_tracking.py`, `test_run_campaign.py` | 1–6 | **Nuevos** |
 | `scripts/train.py`, `run_experiment.py`, `models/*` | — | **NO se modifican** (se reutilizan; el orquestador vive por encima) |
 | Git: rama `feature/campaign-orchestration` | 0 | Desde `development` |
 

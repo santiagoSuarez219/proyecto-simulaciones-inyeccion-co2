@@ -1,0 +1,38 @@
+# Campaña de ejemplo (spec-004 Fase 1): baseline FNO vs U-Net (FiLM) vs FNO+atención axial,
+# 3 seeds cada una. Los criterios de éxito de unet_film y fno_axial_attn NO son inventados:
+# son los ya fijados y registrados en docs/experiments.md antes de correr esas variantes
+# (spec-002 y spec-003 respectivamente), aquí estructurados para evaluación automática
+# (spec-004 Fase 5).
+campaign_name: fno_vs_unet_vs_attn
+description: >
+  Comparacion baseline FNO vs U-Net (condicionamiento FiLM temporal) vs FNO+atencion
+  espacial axial, 3 seeds por variante, contra la linea base congelada baseline-v1.
+seeds: [42, 43, 44]
+variants:
+  - name: baseline
+    config: configs/experiments/baseline.yaml
+    success_criterion: "referencia (linea base); no se evalua contra si misma"
+  - name: unet_film
+    config: configs/experiments/unet_film.yaml
+    success_criterion:
+      metric: val_sf_r2
+      op: ">="
+      threshold: 0.974              # <=2% bajo baseline (0.9937)
+      guard:
+        metric: val_vd_r2
+        op: ">="
+        threshold: 0.9430           # <=2% bajo baseline (0.9626)
+  - name: fno_axial_attn
+    config: configs/experiments/fno_axial_attn.yaml
+    success_criterion:
+      metric: val_sf_rmse
+      op: "<="
+      threshold: 0.00864            # reduce >=5% el baseline (0.0091)
+      guard:
+        metric: val_vd_r2
+        op: ">="
+        threshold: 0.9598           # no degradar (baseline 0.9626 - std ~0.0028)
+tracking:
+  backend: file
+  mlflow_tracking_uri: null
+epochs_override: null
