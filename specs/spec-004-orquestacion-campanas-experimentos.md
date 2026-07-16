@@ -2,13 +2,14 @@
 
 > **Autor:** rol `@architect`
 > **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-16 (revisión contra el estado real del
-> repo tras cerrar `spec-001`/`spec-002`/`spec-003`; Fases 0–5 completadas)
-> **Estado:** `[IN PROGRESS]` — Fases 0–5 (precondiciones, esquema+preflight,
-> reproducibilidad —ahora conectada a la ejecución real—, runner de campaña con resume,
-> tracking, agregación+reporte cross-arquitectura) completas y verificadas en rama
-> `feature/campaign-orchestration`, sin entrenamiento real (Fase 7 pendiente, gated por el
-> usuario). En curso: Fase 6 (suite de no-regresión, mayormente ya cubierta por las
-> verificaciones de cada fase).
+> repo tras cerrar `spec-001`/`spec-002`/`spec-003`; Fases 0–6 completadas)
+> **Estado:** `[IN PROGRESS]` — Fases 0–6 completas y verificadas en rama
+> `feature/campaign-orchestration`: precondiciones, esquema+preflight, reproducibilidad
+> (conectada a la ejecución real), runner con resume, tracking, agregación+reporte
+> cross-arquitectura, y un test de integración real (CPU, 3 seeds, 1 época, overfit) que
+> corrió de punta a punta sin mocks. Solo queda **Fase 7 — ejecución real de la campaña
+> completa** (múltiples arquitecturas × ≥3 seeds, datos completos, GPU): **requiere
+> confirmación explícita del usuario**, no se lanza sola.
 > **Depende de:** `spec-001` (framework de experimentación: `--model-variant`,
 > `build_model`, loader YAML, `run_experiment.py` multi-seed, `aggregate_experiments.py`,
 > `docs/experiments.md`) — **entregado**. Consume las variantes de `spec-002` (U-Net,
@@ -507,16 +508,52 @@ datos (Fase 7 aún no corrida) falla con el mismo `FileNotFoundError` explícito
 
 ---
 
-## Fase 6 — Suite de tests y no-regresión
+## Fase 6 — Suite de tests y no-regresión — ✅ COMPLETA (2026-07-16)
 
-1. Todos los tests de Fases 1–5 pasan; `pytest tests/ -m "not slow"` completo sigue verde
-   (no rompe `spec-000`..`spec-003`).
-2. Un test de integración corto (`@pytest.mark.slow`): campaña mínima con `baseline`,
-   2 seeds, 1 época, `--overfit-sample-idx 0` → produce `campaign_state.json` consistente,
-   `run.done` por corrida, manifiesto de reproducibilidad y un `campaign_report.md`.
+1. ✅ Todos los tests de Fases 1–5 pasan; `pytest tests/ -m "not slow"` completo sigue verde
+   (no rompe `spec-000`..`spec-003`) — **197 passed** antes de esta fase (solo se agregó
+   la Fase 6, sin tocar código de librería).
+2. ✅ Test de integración corto (`@pytest.mark.slow`,
+   `tests/integration/test_campaign_integration.py`): campaña mínima con `baseline`, **3
+   seeds** (no 2 — ver nota de diseño abajo), 1 época, `--overfit-sample-idx 0`,
+   `--device cpu` (esta workstation no tiene CUDA) → produce `campaign_state.json`
+   consistente, `run.done` por corrida, manifiesto de reproducibilidad y un
+   `campaign_report.md`. Corre la **CLI real** (`run_campaign.py` + `aggregate_campaign.py`
+   como subprocesos, sin mocks) contra los datos reales del repo.
 
-**Verificación:** `pytest tests/ -m "not slow"` verde; el test slow de integración pasa bajo
-demanda.
+> **Corrección de diseño (2 seeds → 3):** el borrador original de este spec (2026-07-02)
+> pedía una campaña de prueba con **2 seeds**, pero el preflight ya implementado en Fase 1
+> **rechaza** cualquier campaña con `< 3` seeds (`MIN_SEEDS`, spec-001 Fase 6) — la propia
+> ejecución del test lo confirmó (`Preflight fallido: la campaña declara 2 seeds; se
+> requieren >= 3`). Se corrigió el test a 3 seeds; el guarda de `MIN_SEEDS` es la fuente de
+> verdad, no el borrador de 2026-07-02.
+
+> **Restricción arquitectónica real, descubierta al escribir este test (no introducida por
+> esta fase, preexistente desde `spec-001`):** `train.py::resolve_config` deriva su
+> `output_dir` real con el literal relativo `"outputs/<experiment_name>/seed_<seed>"`
+> (relativo al `cwd` del proceso) — **sin enterarse** del `outputs_root` que
+> `run_experiment.py`/`run_campaign()` usan para su propia contabilidad (`run_manifest.json`,
+> `campaign_state.json`, `run.done`). Al correr por primera vez el test de integración con
+> `--outputs-root` apuntando a un `tmp_path` aislado, la contabilidad de la campaña se
+> escribió correctamente ahí, pero **`train.py` escribió los artefactos reales
+> (`metrics_history.json`, `best.pt`, etc.) bajo el `outputs/campaigns/...` real del repo**
+> (ignorado por git, limpiado manualmente tras detectarlo). Como `train.py` **no se puede
+> modificar** (criterio de aceptación de este spec), esto es una limitación permanente, no
+> un bug de esta fase: **una campaña real siempre escribe sus artefactos de entrenamiento
+> bajo `<cwd>/outputs/campaigns/<name>/...`**; `--outputs-root` solo redirige la
+> contabilidad propia de la campaña (útil únicamente en tests con `run_experiment`
+> mockeado, que nunca invocan `train.py` de verdad — Fases 3 y 5). Documentado en el
+> `--help` de `run_campaign.py`. El test de integración corre con `cwd` = raíz del repo
+> (para que el preflight resuelva `data/processed`/el split reales) y **limpia
+> expresamente** (`try`/`finally`) su directorio de salida (nombre de campaña distintivo,
+> `spec004_fase6_integration_smoke`, para no colisionar con campañas reales) al terminar.
+
+**Verificación (ejecutada):** `pytest tests/ -m "not slow"` verde (sin cambios de librería en
+esta fase, solo el test slow nuevo); el test slow de integración **corrió realmente** (no
+solo "pasa bajo demanda" en teoría): 247s (~4 min) en CPU, y confirmó sin mocks toda la
+cadena Fases 1–5 — preflight, captura de reproducibilidad, ejecución de 3 seeds vía
+`run_experiment.py` real, `run.done`/`campaign_state.json`, agregación+reporte, y **resume
+idempotente** (segunda invocación con `--resume` salta las 3 seeds, `skipped=True`).
 
 ---
 

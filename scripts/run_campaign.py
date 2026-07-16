@@ -56,7 +56,14 @@ def build_parser():
     )
     p.add_argument(
         "--outputs-root", default="outputs",
-        help="Raíz de salida (default: outputs/); override solo para tests/aislamiento",
+        help=(
+            "Raíz de salida para la contabilidad de la campaña (campaign_state.json, "
+            "run.done, reproducibility/). NO reubica las escrituras reales de train.py: "
+            "resolve_config deriva su output_dir con el literal 'outputs/<experiment>/"
+            "seed_<seed>' relativo al cwd del proceso, sin enterarse de este flag (train.py "
+            "no se modifica). Dejar en 'outputs' (default) para corridas reales; solo "
+            "cambiar para tests con run_experiment mockeado (sin subproceso real a train.py)."
+        ),
     )
     return p
 
