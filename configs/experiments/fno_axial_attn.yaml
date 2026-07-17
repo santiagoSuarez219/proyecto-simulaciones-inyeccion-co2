@@ -25,7 +25,10 @@ prefetch_factor: 2
 persistent_workers: true
 progress_interval: 10
 grad_clip: 1.0
-use_amp: false
+# AMP en bfloat16 (misma exponente/rango que fp32, sin GradScaler): acelera el forward/
+# backward sin cambiar arquitectura ni metricas. No aplicado a baseline.yaml (congelado,
+# resultados ya producidos en fp32 con baseline-v1, no se re-entrena).
+use_amp: true
 time_steps: 61
 hidden_dim: 128
 spectral_modes: 16
