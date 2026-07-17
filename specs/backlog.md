@@ -1,5 +1,49 @@
 # Backlog de Deuda Técnica
 
+## ⬜ [spec-004-debt-001] `do_uncertainty` compara contra `cfg.epochs`, no contra la época real de early stopping
+
+**Prioridad:** BAJA (no bloquea Fase 7; el `val_sf_unc`/`val_vd_unc` final puede quedar en 0
+si el intervalo nunca coincide, pero eso ya pasa hoy — no es una regresión de spec-004).
+**Componente:** `src/fno_co2/training/loop.py::main`, línea `do_uncertainty = ... epoch ==
+cfg.epochs ...`.
+
+### Problema
+
+`do_uncertainty` (dispara la calibración/evaluación cara con MC-Dropout, spec-000 M/C2)
+decide "época final" comparando `epoch == cfg.epochs` — el máximo **configurado** (p. ej.
+100), no la época donde el early stopping realmente detiene el entrenamiento (`cfg.epochs`
+nunca se reasigna a ese valor). Con `early_stopping_patience=5` y el histórico real de
+`baseline` (mejores épocas 12/19/14, corridas totales ~17-24), esa rama casi nunca se
+activa: el único disparo real viene del término periódico
+(`epoch % uncertainty_eval_interval == 0`), que puede o no coincidir con la última época de
+la corrida. Esto significa que el `val_sf_unc`/`val_vd_unc` de la fila final de
+`metrics_history.json` no necesariamente refleja la incertidumbre calibrada en la mejor
+época — puede ser 0.0 (nunca calculada) si el intervalo no coincidió con ninguna época de
+la corrida.
+
+**Descubierto durante:** `spec-004` Fase 7, evaluando si `uncertainty_eval_interval` podía
+subirse/deshabilitarse para acelerar los timing probes (ver `spec-004` §7.0, "Ajuste
+descartado"). No se tocó ningún config por este hallazgo.
+
+### Solución propuesta (no implementada)
+
+Que el loop reconozca "esta es la última época que se va a correr" (por early stopping o por
+alcanzar `cfg.epochs`) como caso especial de `do_uncertainty=True`, en vez de comparar contra
+el máximo configurado. Requiere restructurar el loop para saber de antemano (o detectar en el
+momento) que el próximo `break` por early stopping va a ocurrir, y forzar el cálculo de
+incertidumbre en esa época antes de salir.
+
+### Verificación pendiente
+
+- [ ] Repro: correr con `uncertainty_eval_interval` que no divida ninguna época del rango
+      real de una corrida corta (overfit o real) y confirmar `val_sf_unc=0.0` en la fila
+      final de `metrics_history.json`.
+- [ ] Fix + test de regresión: la fila final de una corrida con early stopping siempre tiene
+      incertidumbre calculada (`val_sf_unc > 0`), sin importar el valor de
+      `uncertainty_eval_interval`.
+
+---
+
 ## ✅ [spec-002-debt-001] Optimización GPU de U-Net temporal
 
 **Estado:** RESUELTO (2026-07-15). El OOM era un artefacto de correr **seeds en

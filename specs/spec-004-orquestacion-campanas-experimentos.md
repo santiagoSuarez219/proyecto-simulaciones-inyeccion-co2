@@ -615,11 +615,34 @@ idempotente** (segunda invocación con `--resume` salta las 3 seeds, `skipped=Tr
   | `fno_axial_attn` | ~23-33 h (~1-1.5 **días** por seed) | ~70-100 h |
 
   **Total Fase 7 (9 corridas): ~4.7 a ~6.7 días** de GPU secuencial en 1 GPU; **~3.9 a
-  ~5.6 días** si se reutiliza `baseline` (§7.0, arriba) — sigue dominado casi por completo
-  por `fno_axial_attn`, no por evitar re-entrenar baseline. **Decisión pendiente del
-  usuario** (2026-07-16): no se ajustó `uncertainty_eval_interval`/`uncertainty_passes` para
-  `fno_axial_attn` ni se lanzó la ejecución real — la Fase 7 queda planificada pero **no
-  iniciada**, a retomar cuando el usuario decida cómo proceder con este costo.
+  ~5.6 días** si se reutiliza `baseline` (§7.0, arriba) — estimado **antes** del ajuste de
+  AMP de abajo; sigue dominado casi por completo por `fno_axial_attn`, no por evitar
+  re-entrenar baseline.
+
+  **Ajuste aplicado (2026-07-16, sin riesgo científico):** `use_amp: true` (bfloat16,
+  `torch.autocast`, sin `GradScaler` — bf16 comparte el rango de exponente de fp32, riesgo
+  numérico bajo) en `unet_film.yaml` y `fno_axial_attn.yaml` — no cambia arquitectura ni
+  métricas, solo la precisión numérica del cómputo. `baseline.yaml` **no se tocó**: dice
+  explícitamente "No editar" y sus resultados ya están congelados en fp32 (`baseline-v1`,
+  a reutilizar vía §7.0, no a re-entrenar). Impacto en el estimado de arriba: **no medido
+  todavía** (los timing probes de §7.0 se corrieron con `use_amp: false`, antes de este
+  cambio) — re-medir antes de comprometerse a un tiempo final de Fase 7.
+
+  **Ajuste descartado tras revisión de código (2026-07-16):** se consideró subir/deshabilitar
+  `uncertainty_eval_interval` para saltar la costosa calibración MC-Dropout más seguido, pero
+  `do_uncertainty` en `training/loop.py` compara contra `epoch == cfg.epochs` (el máximo
+  **configurado**, p. ej. 100) — no contra la época real donde para el early stopping (que
+  `cfg.epochs` nunca refleja). Con el histórico real de `baseline` deteniéndose en épocas
+  ~12-24, esa rama prácticamente nunca se activa; deshabilitar el intervalo periódico
+  eliminaría el diagnóstico de incertidumbre de casi toda corrida real, silenciosamente.
+  **No se tocó** este parámetro. Arreglarlo de verdad requeriría que `training/loop.py`
+  reconozca "la época donde el early stopping decide parar" como época final para efectos de
+  incertidumbre — un cambio a `training/loop.py` (spec-000/spec-001), fuera del alcance de
+  este spec; queda registrado aquí como deuda técnica a evaluar, no como ajuste de config.
+
+  **Decisión pendiente del usuario:** no se lanzó la ejecución real — la Fase 7 queda
+  planificada pero **no iniciada**, a retomar cuando el usuario decida cómo proceder
+  (re-medir con AMP, decidir sobre `attn_num_blocks`/`uncertainty_passes`, o correr tal cual).
 
 1. `python scripts/run_campaign.py --config configs/campaigns/fno_vs_unet_vs_attn.yaml
    --dry-run` → revisar la cola y el preflight.
