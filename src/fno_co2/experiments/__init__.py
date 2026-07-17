@@ -21,6 +21,7 @@ from fno_co2.experiments.reproducibility import (
 from fno_co2.experiments.campaign_runner import (
     NoResumeOutputExistsError,
     run_campaign,
+    seed_existing_run,
 )
 from fno_co2.experiments.tracking import (
     ExperimentTracker,
@@ -56,6 +57,7 @@ __all__ = [
     "copy_config_snapshots",
     "NoResumeOutputExistsError",
     "run_campaign",
+    "seed_existing_run",
     "ExperimentTracker",
     "FileTracker",
     "MlflowTracker",

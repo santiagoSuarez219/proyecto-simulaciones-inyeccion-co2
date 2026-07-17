@@ -6,7 +6,7 @@ import yaml
 
 from fno_co2.config import Config
 from fno_co2.experiments.campaign_config import CampaignConfig, CampaignVariant
-from fno_co2.experiments.campaign_runner import NoResumeOutputExistsError, run_campaign
+from fno_co2.experiments.campaign_runner import NoResumeOutputExistsError, run_campaign, seed_existing_run
 
 # El train.py real requiere GPU/datos reales para entrenar de verdad. En estos tests se
 # reutiliza el `run_experiment` REAL (scripts/run_experiment.py, vía el fixture
@@ -229,6 +229,98 @@ def test_without_resume_raises_if_output_already_exists(
             two_seed_campaign, run_experiment_script.run_experiment,
             outputs_root=tmp_path / "outputs", train_script=fake_train_script, resume=False,
         )
+
+
+def _write_existing_run(existing_dir):
+    existing_dir.mkdir(parents=True, exist_ok=True)
+    (existing_dir / "metrics_history.json").write_text('[{"epoch": 1, "val_loss": 0.05}]', encoding="utf-8")
+    (existing_dir / "config.json").write_text("{}", encoding="utf-8")
+    checkpoints_dir = existing_dir / "checkpoints"
+    checkpoints_dir.mkdir(exist_ok=True)
+    (checkpoints_dir / "best.pt").write_bytes(b"fake-checkpoint-bytes")
+
+
+def test_seed_existing_run_imports_artifacts_and_writes_compatible_run_done(two_seed_campaign, tmp_path):
+    existing_dir = tmp_path / "existing_baseline" / "seed_1"
+    _write_existing_run(existing_dir)
+
+    imported = seed_existing_run(
+        two_seed_campaign, "baseline", {1: existing_dir}, outputs_root=tmp_path / "outputs",
+    )
+
+    assert imported == [1]
+    dest_dir = tmp_path / "outputs" / "campaigns" / "camp" / "baseline" / "seed_1"
+    assert (dest_dir / "metrics_history.json").read_text(encoding="utf-8") == existing_dir.joinpath(
+        "metrics_history.json"
+    ).read_text(encoding="utf-8")
+    assert (dest_dir / "checkpoints" / "best.pt").read_bytes() == b"fake-checkpoint-bytes"
+
+    run_done = json.loads((dest_dir / "run.done").read_text(encoding="utf-8"))
+    assert run_done["imported_from"] == str(existing_dir)
+    assert run_done["run_signature"]["model_name"] == "fno_baseline"
+
+
+def test_seed_existing_run_then_resume_never_calls_run_experiment_for_it(
+    run_experiment_script, fake_train_script, two_seed_campaign, tmp_path, _chdir_tmp_path,
+):
+    existing_dir = tmp_path / "existing_baseline" / "seed_1"
+    _write_existing_run(existing_dir)
+    seed_existing_run(two_seed_campaign, "baseline", {1: existing_dir}, outputs_root=tmp_path / "outputs")
+
+    calls = []
+    original_run_experiment = run_experiment_script.run_experiment
+
+    def _tracking_run_experiment(**kwargs):
+        calls.append(sorted(kwargs["seeds"]))
+        return original_run_experiment(**kwargs)
+
+    state = run_campaign(
+        two_seed_campaign, _tracking_run_experiment,
+        outputs_root=tmp_path / "outputs", train_script=fake_train_script, resume=True,
+    )
+
+    assert calls == [[2]]  # solo la seed 2 (no importada) se ejecuta de verdad
+    assert state["jobs"]["baseline/seed_1"]["status"] == "completed"
+    assert state["jobs"]["baseline/seed_1"].get("skipped") is True
+
+
+def test_seed_existing_run_skips_seed_not_in_campaign(two_seed_campaign, tmp_path):
+    existing_dir = tmp_path / "existing_baseline" / "seed_999"
+    _write_existing_run(existing_dir)
+
+    imported = seed_existing_run(
+        two_seed_campaign, "baseline", {999: existing_dir}, outputs_root=tmp_path / "outputs",
+    )
+    assert imported == []
+
+
+def test_seed_existing_run_skips_if_destination_already_has_content(two_seed_campaign, tmp_path):
+    dest_dir = tmp_path / "outputs" / "campaigns" / "camp" / "baseline" / "seed_1"
+    dest_dir.mkdir(parents=True)
+    (dest_dir / "already_here.txt").write_text("x")
+
+    existing_dir = tmp_path / "existing_baseline" / "seed_1"
+    _write_existing_run(existing_dir)
+
+    imported = seed_existing_run(
+        two_seed_campaign, "baseline", {1: existing_dir}, outputs_root=tmp_path / "outputs",
+    )
+    assert imported == []
+
+
+def test_seed_existing_run_skips_without_metrics_history(two_seed_campaign, tmp_path):
+    existing_dir = tmp_path / "existing_baseline" / "seed_1"
+    existing_dir.mkdir(parents=True)  # sin metrics_history.json
+
+    imported = seed_existing_run(
+        two_seed_campaign, "baseline", {1: existing_dir}, outputs_root=tmp_path / "outputs",
+    )
+    assert imported == []
+
+
+def test_seed_existing_run_unknown_variant_raises(two_seed_campaign, tmp_path):
+    with pytest.raises(ValueError):
+        seed_existing_run(two_seed_campaign, "no_existe", {1: tmp_path}, outputs_root=tmp_path / "outputs")
 
 
 def test_run_campaign_script_parses_resume_and_yes_flags(run_campaign_script):

@@ -12,6 +12,7 @@ módulo no sabe nada de `scripts/`, solo orquesta.
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -93,7 +94,9 @@ def _set_job_status(state: dict, variant_name: str, seed: int, status: str, **ex
     entry.update(extra)
 
 
-_TRACKED_ARTIFACTS = ("metrics_history.json", "best.pt", "config.json")
+# Rutas relativas al job_dir. best.pt/latest.pt viven en checkpoints/ (confirmado contra
+# una corrida real, outputs/baseline/seed_42/checkpoints/best.pt) — no directo en job_dir.
+_TRACKED_ARTIFACTS = ("metrics_history.json", "config.json", "checkpoints/best.pt")
 
 
 def _consolidate_tracker(backend: str, job_dir: Path, cfg: Config, seed: int) -> None:
@@ -193,3 +196,66 @@ def run_campaign(
         atomic_write_json(campaign_dir / "campaign_state.json", state)
 
     return state
+
+
+def seed_existing_run(
+    campaign: CampaignConfig,
+    variant_name: str,
+    existing_run_dirs: dict[int, Path],
+    *,
+    outputs_root: Path = Path("outputs"),
+) -> list[int]:
+    """Importa corridas ya completas **fuera de la campaña** (p. ej. una línea base ya
+    entrenada y congelada como `outputs/baseline/seed_<s>/`) al layout de la campaña
+    (`outputs/campaigns/<name>/<variant>/seed_<s>/`), copiando `metrics_history.json`/
+    `config.json`/`checkpoints/best.pt` y escribiendo un `run.done` con la **firma de
+    corrida real** de `variant.config_path` — para que `run_campaign(..., resume=True)` la
+    salte sin re-entrenar. No modifica ni mueve la corrida original (solo copia); no
+    sobrescribe un `job_dir` de la campaña que ya tenga contenido (usa el `--resume`
+    normal para eso). Retorna las seeds efectivamente importadas."""
+    variant = next((v for v in campaign.variants if v.name == variant_name), None)
+    if variant is None:
+        raise ValueError(f"la campaña '{campaign.campaign_name}' no tiene una variante '{variant_name}'")
+
+    cfg = load_config_from_yaml(variant.config_path)
+    signature = _build_variant_signature(cfg)
+    campaign_dir = outputs_root / "campaigns" / campaign.campaign_name
+
+    imported: list[int] = []
+    for seed, existing_dir in existing_run_dirs.items():
+        if seed not in campaign.seeds:
+            logger.warning(f"seed {seed} no está en la campaña '{campaign.campaign_name}'; se omite")
+            continue
+
+        dest_dir = _job_dir(campaign_dir, variant_name, seed)
+        if dest_dir.exists() and any(dest_dir.iterdir()):
+            logger.warning(f"{variant_name}/seed_{seed}: {dest_dir} ya tiene contenido; se omite")
+            continue
+
+        metrics_path = existing_dir / "metrics_history.json"
+        if not metrics_path.exists():
+            logger.warning(f"{existing_dir} no tiene metrics_history.json; se omite")
+            continue
+
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for name in ("metrics_history.json", "config.json"):
+            src = existing_dir / name
+            if src.exists():
+                shutil.copy2(src, dest_dir / name)
+        checkpoints_src = existing_dir / "checkpoints"
+        if checkpoints_src.exists():
+            shutil.copytree(checkpoints_src, dest_dir / "checkpoints", dirs_exist_ok=True)
+
+        atomic_write_json(
+            dest_dir / "run.done",
+            {
+                "run_signature": signature,
+                "returncode": 0,
+                "finished_at": datetime.now().isoformat(),
+                "imported_from": str(existing_dir),
+            },
+        )
+        imported.append(seed)
+        logger.info(f"{variant_name}/seed_{seed}: importado desde {existing_dir}")
+
+    return imported

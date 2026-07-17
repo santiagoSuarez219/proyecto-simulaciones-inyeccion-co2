@@ -561,9 +561,74 @@ idempotente** (segunda invocación con `--resume` salta las 3 seeds, `skipped=Tr
 
 > **⚠️ Requiere GPU + datos post-C1 + baseline congelada + confirmación explícita.**
 
+### 7.0 Preparación (2026-07-16, no requiere confirmación de entrenamiento — no entrena nada)
+
+- **Reutilización de `baseline-v1` ya entrenado.** `outputs/baseline/seed_{42,43,44}/` ya
+  existe (congelado, 3 seeds) — pero vive **fuera** del namespace de la campaña
+  (`outputs/campaigns/<name>/baseline/seed_<s>/`), así que `run_campaign()` lo
+  re-entrenaría desde cero si no se importa antes. Se agregó
+  `fno_co2.experiments.campaign_runner.seed_existing_run` +
+  `scripts/import_existing_run.py`: copian los artefactos (`metrics_history.json`,
+  `config.json`, `checkpoints/best.pt`) al layout de la campaña y escriben un `run.done`
+  con la **firma de corrida real** (`build_run_signature`) — para que `run_campaign.py
+  --resume` salte esas 3 seeds sin re-entrenar. No modifica ni mueve la corrida original,
+  solo copia; no sobrescribe un `job_dir` que ya tenga contenido. Uso:
+  ```bash
+  python scripts/import_existing_run.py \
+    --config configs/campaigns/fno_vs_unet_vs_attn.yaml \
+    --variant baseline --source-root outputs/baseline
+  python scripts/run_campaign.py \
+    --config configs/campaigns/fno_vs_unet_vs_attn.yaml --yes --resume
+  ```
+  Ahorra las 3 corridas de `baseline` (ver estimado de tiempo abajo — no es poco).
+  Verificado con 7 tests unitarios (`test_seed_existing_run_*`, `test_run_campaign.py`).
+
+- **Estimado de tiempo revisado (medido, no histórico) — completo, 3/3 variantes.** El
+  estimado de `spec-002-debt-001` ("~1.5-2h/seed baseline") **no contemplaba correctamente
+  el costo de la calibración de incertidumbre MC-Dropout**. Medición real (GPU RTX 6000 Ada,
+  1 época, seed 42, datos completos, 2026-07-16):
+
+  | variante | `train` (1 época) | `calib` (MC-Dropout ×30) | `eval` (con incertidumbre) | **total** |
+  |---|---|---|---|---|
+  | `baseline` | 12.1 min (3905 batches, 5.48 it/s) | 32.0 min (995 batches) | 33.0 min | **77.4 min** (1.29 h) |
+  | `unet_film` | 14.8 min (7809 batches, batch_size=2, 9.40 it/s) | 46.0 min (1989 batches) | 47.6 min | **108.6 min** (1.81 h) |
+  | `fno_axial_attn` | 48.4 min (3905 batches, **1.35 it/s** — atención axial ~4× más cara por batch que baseline) | 106.2 min | 112.2 min | **267.0 min** (4.45 h) |
+
+  **Hallazgo clave:** `calib`+`eval` con incertidumbre **no corren cada época** —
+  `training/loop.py` los dispara solo cuando `epoch == cfg.epochs` (época final) o
+  `epoch % uncertainty_eval_interval(=10) == 0`. La mayoría de las épocas de una corrida
+  real son "baratas" (`train` + `eval` sin incertidumbre, sin medir con precisión — la
+  atención axial de `fno_axial_attn` sola, sin MC-Dropout, ya explica ~4× el costo de
+  `train` de `baseline`); 2-3 épocas por corrida (según cuántas caen en el intervalo de 10 +
+  la final) pagan el costo caro completo medido arriba.
+
+  **`fno_axial_attn` es, con mucho, el factor dominante** — no `unet_film` (que era la
+  preocupación original del backlog `spec-002-debt-001`). Con el histórico real de
+  `baseline` (mejores épocas en 12/19/14 con `patience=5` → corridas totales de ~17-24
+  épocas, 2-3 de ellas caras) como referencia de forma de la curva (**no medido para las
+  otras 2 variantes** — supuesto, no dato):
+
+  | variante | estimado por seed | 3 seeds |
+  |---|---|---|
+  | `baseline` | ~6-9 h | ~19-27 h |
+  | `unet_film` | ~8-12 h | ~24-35 h |
+  | `fno_axial_attn` | ~23-33 h (~1-1.5 **días** por seed) | ~70-100 h |
+
+  **Total Fase 7 (9 corridas): ~4.7 a ~6.7 días** de GPU secuencial en 1 GPU; **~3.9 a
+  ~5.6 días** si se reutiliza `baseline` (§7.0, arriba) — sigue dominado casi por completo
+  por `fno_axial_attn`, no por evitar re-entrenar baseline. **Decisión pendiente del
+  usuario** (2026-07-16): no se ajustó `uncertainty_eval_interval`/`uncertainty_passes` para
+  `fno_axial_attn` ni se lanzó la ejecución real — la Fase 7 queda planificada pero **no
+  iniciada**, a retomar cuando el usuario decida cómo proceder con este costo.
+
 1. `python scripts/run_campaign.py --config configs/campaigns/fno_vs_unet_vs_attn.yaml
    --dry-run` → revisar la cola y el preflight.
-2. Con confirmación del usuario: correr sin `--dry-run` (`--yes`), ≥ 3 seeds por variante.
+2. Con confirmación del usuario: (opcional) importar `baseline-v1` con
+   `import_existing_run.py` (§7.0) para ahorrar esas 3 corridas; luego correr sin
+   `--dry-run` (`--yes`), ≥ 3 seeds por variante. **Antes de lanzar de verdad, decidir qué
+   hacer con el costo de `fno_axial_attn`** (ver estimado arriba) — correrlo tal cual
+   (~1-1.5 días/seed) o ajustar `uncertainty_eval_interval`/`uncertainty_passes` para esa
+   variante primero.
 3. Si se interrumpe: relanzar con `--resume`.
 4. El agregador de campaña (§Fase 5) genera el reporte cross-arquitectura final.
 5. **Cerrar backlog:** actualizar `docs/experiments.md` (tablas de `unet_film` y
@@ -587,6 +652,7 @@ idempotente** (segunda invocación con `--resume` salta las 3 seeds, `skipped=Tr
 | `src/fno_co2/experiments/tracking.py` | 4 | **Nuevo** — `ExperimentTracker` + FileTracker + adaptador |
 | `src/fno_co2/experiments/campaign_report.py` | 5 | **Nuevo** — evaluación de criterio estructurado + orquesta agregación por variante + reporte |
 | `scripts/aggregate_campaign.py` | 5 | **Nuevo** — CLI delgado, carga `aggregate_experiments.py` por ruta (sin modificarlo) |
+| `scripts/import_existing_run.py` | 7 (prep.) | **Nuevo** — importa una corrida ya entrenada (p. ej. `baseline-v1`) al layout de campaña |
 | `outputs/campaigns/` | 3, 5 | Runtime — estado, corridas, reproducibility, reporte |
 | `docs/experiments.md`, `campaign_report.md` | 5 | Append / generado |
 | `pyproject.toml` | 4 | `mlflow` (o `wandb`) **solo si** se elige ese backend (**confirmar**) |
