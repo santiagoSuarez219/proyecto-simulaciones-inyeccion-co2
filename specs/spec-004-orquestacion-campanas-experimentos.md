@@ -624,9 +624,43 @@ idempotente** (segunda invocación con `--resume` salta las 3 seeds, `skipped=Tr
   numérico bajo) en `unet_film.yaml` y `fno_axial_attn.yaml` — no cambia arquitectura ni
   métricas, solo la precisión numérica del cómputo. `baseline.yaml` **no se tocó**: dice
   explícitamente "No editar" y sus resultados ya están congelados en fp32 (`baseline-v1`,
-  a reutilizar vía §7.0, no a re-entrenar). Impacto en el estimado de arriba: **no medido
-  todavía** (los timing probes de §7.0 se corrieron con `use_amp: false`, antes de este
-  cambio) — re-medir antes de comprometerse a un tiempo final de Fase 7.
+  a reutilizar vía §7.0, no a re-entrenar).
+
+  **Bug encontrado y corregido durante el re-medido:** el primer re-medido de
+  `fno_axial_attn` con `use_amp: true` mostró **cero mejora** en `calib` (106.8 min, igual
+  que sin AMP) — `calibrate_uncertainty()` (`inference/uncertainty.py`) llamaba a
+  `predict_with_uncertainty` **sin envolver en `torch.autocast`**, a diferencia de la rama
+  equivalente dentro de `evaluate_epoch` (`training/loop.py`), que sí lo hacía. Corregido
+  (mismo patrón de autocast, cast a `float32` después — `torch.quantile` no acepta bf16).
+  2 tests nuevos (`test_amp.py`). Commit `d028935`.
+
+  **Re-medido completo tras el fix (GPU RTX 6000 Ada, `fno_axial_attn`, 1 época, seed 42,
+  2026-07-16, de 15:53:07 a 19:11:53):**
+
+  | fase | sin AMP | con AMP + fix | mejora |
+  |---|---|---|---|
+  | `train` | 48.4 min | 33.4 min | ~31% |
+  | `calib` | 106.2 min | **81.3 min** | ~23% |
+  | `eval` | 112.2 min | **83.9 min** | ~25% |
+  | **total** | **267.0 min (4.45h)** | **198.8 min (3.31h)** | **~25.6%** |
+
+  `unet_film` también tiene `use_amp: true` pero **no se ha re-medido** con el fix — el
+  85.3→81.3/106.8 min visto en `fno_axial_attn` sugiere una mejora similar (~20-30%) es
+  razonable esperar, pero es una extrapolación, no un dato.
+
+  **Estimado de Fase 7 actualizado** (misma forma de curva asumida: ~17-24 épocas/seed,
+  2-3 "caras"; solo `fno_axial_attn` tiene el costo-por-época-cara re-medido):
+
+  | variante | estimado por seed (con AMP) | 3 seeds |
+  |---|---|---|
+  | `baseline` | ~6-9 h (sin cambios, no se re-entrena) | ~19-27 h (evitable, §7.0) |
+  | `unet_film` | ~8-12 h (**no re-medido con AMP**, mismo estimado de antes) | ~24-35 h |
+  | `fno_axial_attn` | **~15.6-23.2 h** (antes ~23-33 h) | **~47-70 h** (antes ~70-100 h) |
+
+  **Total Fase 7 (9 corridas): ~4.0 a ~5.8 días** (antes ~4.7-6.7 días); **~3.0 a ~4.4
+  días** si se reutiliza `baseline` (antes ~3.9-5.6 días) — mejora de **~20-25%** gracias a
+  AMP + el fix de `calib`, pero sigue siendo de días, no horas, y sigue dominado por
+  `fno_axial_attn`.
 
   **Ajuste descartado tras revisión de código (2026-07-16):** se consideró subir/deshabilitar
   `uncertainty_eval_interval` para saltar la costosa calibración MC-Dropout más seguido, pero
@@ -635,14 +669,11 @@ idempotente** (segunda invocación con `--resume` salta las 3 seeds, `skipped=Tr
   `cfg.epochs` nunca refleja). Con el histórico real de `baseline` deteniéndose en épocas
   ~12-24, esa rama prácticamente nunca se activa; deshabilitar el intervalo periódico
   eliminaría el diagnóstico de incertidumbre de casi toda corrida real, silenciosamente.
-  **No se tocó** este parámetro. Arreglarlo de verdad requeriría que `training/loop.py`
-  reconozca "la época donde el early stopping decide parar" como época final para efectos de
-  incertidumbre — un cambio a `training/loop.py` (spec-000/spec-001), fuera del alcance de
-  este spec; queda registrado aquí como deuda técnica a evaluar, no como ajuste de config.
+  **No se tocó** este parámetro (registrado como `spec-004-debt-001` en `specs/backlog.md`).
 
   **Decisión pendiente del usuario:** no se lanzó la ejecución real — la Fase 7 queda
-  planificada pero **no iniciada**, a retomar cuando el usuario decida cómo proceder
-  (re-medir con AMP, decidir sobre `attn_num_blocks`/`uncertainty_passes`, o correr tal cual).
+  planificada pero **no iniciada**, a retomar cuando el usuario decida cómo proceder (re-medir
+  `unet_film` con AMP, decidir sobre `attn_num_blocks`/`uncertainty_passes`, o correr tal cual).
 
 1. `python scripts/run_campaign.py --config configs/campaigns/fno_vs_unet_vs_attn.yaml
    --dry-run` → revisar la cola y el preflight.
