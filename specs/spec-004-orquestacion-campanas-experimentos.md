@@ -1,15 +1,13 @@
-# spec-004 — Orquestación de campañas de experimentos (matriz arquitectura × seeds) [IN PROGRESS]
+# spec-004 — Orquestación de campañas de experimentos (matriz arquitectura × seeds) [DONE]
 
 > **Autor:** rol `@architect`
-> **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-16 (revisión contra el estado real del
-> repo tras cerrar `spec-001`/`spec-002`/`spec-003`; Fases 0–6 completadas)
-> **Estado:** `[IN PROGRESS]` — Fases 0–6 completas y verificadas en rama
-> `feature/campaign-orchestration`: precondiciones, esquema+preflight, reproducibilidad
-> (conectada a la ejecución real), runner con resume, tracking, agregación+reporte
-> cross-arquitectura, y un test de integración real (CPU, 3 seeds, 1 época, overfit) que
-> corrió de punta a punta sin mocks. Solo queda **Fase 7 — ejecución real de la campaña
-> completa** (múltiples arquitecturas × ≥3 seeds, datos completos, GPU): **requiere
-> confirmación explícita del usuario**, no se lanza sola.
+> **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-19 (Fase 7 ejecutada — spec completo)
+> **Estado:** `[DONE]` — Fases 0–7 completas en rama `feature/campaign-orchestration`. La
+> campaña real `fno_vs_unet_vs_attn` corrió de punta a punta (baseline reutilizado + 6
+> corridas reales de `unet_film`/`fno_axial_attn`, ~37.5 h), generó `campaign_report.md` y
+> actualizó `docs/experiments.md`; cerró los pendientes de `spec-002`/`spec-003` (detalle en
+> §Fase 7). Resultado científico: `unet_film` equivalente a baseline (cumple no-degradación);
+> `fno_axial_attn` no cumple su criterio.
 > **Depende de:** `spec-001` (framework de experimentación: `--model-variant`,
 > `build_model`, loader YAML, `run_experiment.py` multi-seed, `aggregate_experiments.py`,
 > `docs/experiments.md`) — **entregado**. Consume las variantes de `spec-002` (U-Net,
@@ -671,26 +669,42 @@ idempotente** (segunda invocación con `--resume` salta las 3 seeds, `skipped=Tr
   eliminaría el diagnóstico de incertidumbre de casi toda corrida real, silenciosamente.
   **No se tocó** este parámetro (registrado como `spec-004-debt-001` en `specs/backlog.md`).
 
-  **Decisión pendiente del usuario:** no se lanzó la ejecución real — la Fase 7 queda
-  planificada pero **no iniciada**, a retomar cuando el usuario decida cómo proceder (re-medir
-  `unet_film` con AMP, decidir sobre `attn_num_blocks`/`uncertainty_passes`, o correr tal cual).
+  **✅ Ejecutada (2026-07-18 07:06 → 2026-07-19 20:37, ~37.5 h reales — muy por debajo del
+  estimado de 3.0-4.4 días, ver resultado abajo).**
 
-1. `python scripts/run_campaign.py --config configs/campaigns/fno_vs_unet_vs_attn.yaml
-   --dry-run` → revisar la cola y el preflight.
-2. Con confirmación del usuario: (opcional) importar `baseline-v1` con
-   `import_existing_run.py` (§7.0) para ahorrar esas 3 corridas; luego correr sin
-   `--dry-run` (`--yes`), ≥ 3 seeds por variante. **Antes de lanzar de verdad, decidir qué
-   hacer con el costo de `fno_axial_attn`** (ver estimado arriba) — correrlo tal cual
-   (~1-1.5 días/seed) o ajustar `uncertainty_eval_interval`/`uncertainty_passes` para esa
-   variante primero.
-3. Si se interrumpe: relanzar con `--resume`.
-4. El agregador de campaña (§Fase 5) genera el reporte cross-arquitectura final.
-5. **Cerrar backlog:** actualizar `docs/experiments.md` (tablas de `unet_film` y
-   `fno_axial_attn` con números reales) y marcar `spec-002-debt-002` Fase 5.3 y `spec-003`
-   Fase 5 como resueltos; promover `spec-003` a `[DONE]` si cumple su criterio.
+1. ✅ `python scripts/run_campaign.py --config configs/campaigns/fno_vs_unet_vs_attn.yaml
+   --dry-run` → cola y preflight verificados antes de lanzar.
+2. ✅ Confirmación explícita del usuario recibida; `baseline-v1` importado con
+   `import_existing_run.py` (§7.0, ahorra sus 3 corridas); lanzado sin `--dry-run` (`--yes
+   --resume`) en `tmux` (independiente de la sesión, por el riesgo de procesos de fondo
+   interrumpidos observado durante los timing probes).
+3. No hubo que reanudar — corrió de punta a punta sin interrupciones.
+4. ✅ `scripts/aggregate_campaign.py` generó `campaign_report.md` + actualizó
+   `docs/experiments.md` con las 3 filas.
+5. ✅ **Backlog cerrado:** `spec-002-debt-002` (Fase 5.3) marcado RESUELTO — `unet_film`
+   cumple su criterio de no-degradación (**"equivalente" a baseline, no "mejora"**, ver
+   nota anti-solapamiento en `spec-002`). `spec-003` Fase 5 marcada completa y promovida a
+   `[DONE]` — pero su criterio **no se cumplió**: `fno_axial_attn` no reduce `val_sf_rmse`
+   (lo empeora ~41%) ni cumple el guard de `val_vd_r2`. `[DONE]` refleja implementación +
+   experimento completos, no una validación de la hipótesis (detalle en `spec-003`).
 
-**Verificación:** `docs/experiments.md` y `campaign_report.md` con todas las variantes ×
-≥3 seeds vs. baseline, criterios predefinidos evaluados, y `reproducibility/` completo.
+**Resultado final (3 seeds cada variante, `val_sf_r2`/`val_vd_r2` mean±std):**
+
+| variante | val_sf_r2 | val_vd_r2 | veredicto |
+|---|---|---|---|
+| `baseline` | 0.9937 ± 0.0001 | 0.9626 ± 0.0028 | referencia |
+| `unet_film` | 0.9920 ± 0.0002 | 0.9650 ± 0.0010 | cumplido (equivalente, no mejora) |
+| `fno_axial_attn` | 0.9874 ± 0.0042 | 0.9498 ± 0.0141 | no cumplido |
+
+**Observación no bloqueante:** las 3 seeds de `fno_axial_attn` pararon por early stopping
+mucho antes (8, 7, 11 épocas) que `baseline`/`unet_film` (17-25) — posible interacción
+LR/atención sin ajustar por-variante (a diferencia de `unet_film`, que sí tiene su propio
+`lr`). Registrado en `spec-003` como línea de investigación futura, no como defecto de
+`spec-004`.
+
+**Verificación:** `docs/experiments.md` y `campaign_report.md` con las 3 variantes × 3
+seeds vs. baseline, criterios predefinidos evaluados, y `reproducibility/` completo
+(commit `0e2b03f`, split checksum `f51dfe25...529c95d`).
 
 ---
 

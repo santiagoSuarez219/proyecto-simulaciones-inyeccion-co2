@@ -1,10 +1,15 @@
-# spec-003 — Variante de arquitectura FNO + atención espacial axial [TESTING]
+# spec-003 — Variante de arquitectura FNO + atención espacial axial [DONE]
 
 > **Autor:** rol `@architect`
-> **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-15 (Fases 1–4 implementadas)
-> **Estado:** [TESTING] — Fases 1–4 completas (AxialAttentionBlock, FNOAxialAttention, config,
-> registry discovery, YAML; tests: 16/16 ✅). Fase 5 (humo + experimento multi-seed con GPU)
-> pendiente de confirmación del usuario.
+> **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-19 (Fase 5 cerrada con corrida multi-seed
+> real vía la campaña de `spec-004`)
+> **Estado:** [DONE] — Fases 1–5 completas (implementación, tests 16/16, y la corrida
+> multi-seed real que faltaba). **Resultado científico: el criterio predefinido NO se
+> cumplió** — `val_sf_rmse = 0.0128 ± 0.0021` (empeora, no reduce, frente al `≤0.00864`
+> exigido) y `val_vd_r2 = 0.9498 ± 0.0141` (no cumple el guard `≥0.9598`). `[DONE]` refleja
+> que la implementación está completa y probada, y que el experimento se ejecutó y dio una
+> respuesta clara — no que la variante haya superado a la línea base. Detalle en
+> `docs/experiments.md` y `outputs/campaigns/fno_vs_unet_vs_attn/campaign_report.md`.
 > **Depende de:** `spec-001` (framework de experimentación y comparación de
 > arquitecturas). Es una **variante estructural** más dentro de ese framework
 > (spec-001 §Fase 3): vive en `models/variants/`, se registra en `build_model(cfg)` y se
@@ -239,7 +244,7 @@ sin `@pytest.mark.slow`:
 
 ---
 
-## Fase 5 — Humo de convergencia y experimento comparativo (Pendiente)
+## Fase 5 — Humo de convergencia y experimento comparativo — ✅ COMPLETA (2026-07-19)
 
 > Usa el framework de `spec-001`; no reimplementa entrenamiento.
 > **Requisito:** confirmación explícita del usuario para ejecutar entrenamientos con GPU.
@@ -270,6 +275,26 @@ sin `@pytest.mark.slow`:
 
 **Verificación:** el overfit baja la loss; `docs/experiments.md` tiene la fila
 `fno_axial_attn` con criterio predefinido y resultados multi-seed vs. baseline.
+
+> ✅ **Cumplida (2026-07-19), vía la campaña `fno_vs_unet_vs_attn` de `spec-004`.** 3 seeds
+> (42/43/44), `use_amp=true` (con el fix de `calibrate_uncertainty`, spec-004):
+> `val_sf_r2 = 0.9874 ± 0.0042`, `val_vd_r2 = 0.9498 ± 0.0141`, `val_sf_rmse = 0.0128 ±
+> 0.0021`, `val_vd_rmse = 0.0232 ± 0.0032`.
+>
+> **Criterio NO cumplido:** `val_sf_rmse` **empeora** un ~41% (0.0128 vs. baseline 0.0091),
+> en vez de mejorar ≥5% (`≤0.00864` exigido); el guard `val_vd_r2 ≥ 0.9598` tampoco se
+> cumple. La atención axial no justifica su costo computacional extra (~4× por batch vs.
+> baseline) con los hiperparámetros actuales.
+>
+> **Observación para investigación futura (no bloqueante, no diagnosticada como bug):** las
+> 3 seeds pararon por early stopping mucho antes que `baseline`/`unet_film` (épocas totales
+> 8, 7, 11 vs. 17-25) y su mejor época individual fue muy temprana (6, 2, 6) — sugiere que
+> el modelo converge rápido a un punto y luego empeora, o que el LR/scheduler no está
+> ajustado para esta variante (heredado sin cambios de `baseline`, a diferencia de
+> `unet_film` que sí requirió su propio `lr`). Antes de descartar la atención axial por
+> completo, valdría la pena probar un `lr` menor o un scheduler distinto, específico para
+> esta variante — no se hizo en esta corrida (fuera del alcance de `spec-004`, que compara
+> arquitecturas con el resto de hiperparámetros congelado).
 
 ---
 

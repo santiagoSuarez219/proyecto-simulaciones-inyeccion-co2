@@ -112,9 +112,9 @@ Al expandir los skips de (B, C, H, W) a (B*T, C, H, W), se duplica el uso de mem
 
 ## ✅ [spec-002-debt-002] Investigar convergencia deficiente
 
-**Estado:** RESUELTO — mecanismo (2026-07-15). Diagnóstico con overfit de 1 muestra
-(gate de Fase 5.1) + fix aplicado + humo en verde. Falta solo la confirmación
-multi-seed real con GPU (Fase 5.3, gated por el usuario).
+**Estado:** RESUELTO por completo (2026-07-19). Diagnóstico con overfit de 1 muestra
+(Fase 5.1) + fix aplicado + humo en verde + **confirmación multi-seed real con GPU**
+(Fase 5.3, campaña `spec-004`) — ver detalle abajo.
 
 ### Causa raíz (dos bugs independientes)
 
@@ -150,8 +150,17 @@ multi-seed real con GPU (Fase 5.3, gated por el usuario).
       real del YAML (`h_dim=64`, `lr=3e-5`): `train_loss` E1=5.26 → E40=0.55,
       `sf_rmse` 0.31 → 0.036. Antes: divergía a millones.
 - [x] `pytest tests/ -m "not slow"` en verde (135 passed), incl. `test_mc_dropout_active`.
-- [ ] **Pendiente (Fase 5.3, GPU + confirmación del usuario):** corrida multi-seed
-      real ≥3 seeds y comprobar `val_sf_r2` cercano al baseline en datos completos.
+- [x] **Fase 5.3 completada (2026-07-16/19, campaña `spec-004`, GPU real, `use_amp=true`):**
+      3 seeds (42/43/44), datos completos, 19-25 épocas cada una (early stopping).
+      `val_sf_r2 = 0.9920 ± 0.0002`, `val_vd_r2 = 0.9650 ± 0.0010` — dentro del criterio de
+      no-degradación fijado en `spec-002` Fase 5 (`val_sf_r2 ≥ 0.974`, `val_vd_r2 ≥ 0.9430`,
+      ambos con holgura amplia). **Matiz importante:** el rango mean±std de `val_sf_r2` de
+      `unet_film` ([0.9918, 0.9922]) **no se solapa** con el de `baseline` ([0.9936, 0.9938])
+      y su mean queda **por debajo**, no por encima — por la regla anti-solapamiento del
+      propio criterio de `spec-002` Fase 5, el veredicto correcto es **"equivalente" a
+      baseline dentro del margen aceptado, no "mejora"**. Ninguna seed convergió con
+      inestabilidad ni MC-Dropout trivial. Backlog cerrado: la U-Net FiLM es una alternativa
+      arquitectónica viable, con paridad de desempeño frente a baseline, no una mejora.
 
 <details><summary>Reporte original (histórico)</summary>
 
