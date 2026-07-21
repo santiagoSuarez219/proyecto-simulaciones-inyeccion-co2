@@ -110,6 +110,12 @@ visible.*
 
 *Mismos valores de la tabla anterior, en la época del `best.pt` de cada semilla.*
 
+### Pesos de los modelos
+
+Los 9 `best.pt` (las tres variantes × 3 semillas, ~2.94 GB en total) no se versionan en
+git — están disponibles en Google Drive:
+[carpeta `fno_co2_checkpoints_fno_vs_unet_vs_attn`](https://drive.google.com/open?id=1iMZUkNlLJrKr23O6vLyhKuXc0gkA-lZ3).
+
 ---
 
 ## 6. Interpretación y discusión
