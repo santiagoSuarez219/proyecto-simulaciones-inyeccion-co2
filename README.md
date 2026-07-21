@@ -70,4 +70,6 @@ Ver `python scripts/train.py --help` para todos los argumentos disponibles.
 
 - `CLAUDE.md`: Configuración del proyecto, stack tecnológico, convenciones
 - `docs/`: Documentación técnica adicional, incluido el esquema de BD (`database_schema.md`)
+  y el [informe de resultados de la campaña `fno_vs_unet_vs_attn`](docs/informe-resultados-campana-fno-vs-unet-vs-attn.md)
+  (FNO baseline vs. U-Net FiLM vs. FNO+atención axial)
 - `specs/`: Specs de funcionalidades y hallazgos técnicos

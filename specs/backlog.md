@@ -42,6 +42,16 @@ incertidumbre en esa época antes de salir.
       incertidumbre calculada (`val_sf_unc > 0`), sin importar el valor de
       `uncertainty_eval_interval`.
 
+**Auditado y documentado (no corregido) por `spec-006`, 2026-07-21:** el informe de
+divulgación (`docs/informe-resultados-campana-fno-vs-unet-vs-attn.md`, §8) confirma el
+impacto en la campaña `fno_vs_unet_vs_attn` real: las 9 corridas tienen incertidumbre=0.0
+en su fila final; `baseline`/`unet_film` sí tienen incertidumbre calibrada válida en sus 3
+seeds (última época múltiplo de `uncertainty_eval_interval` alcanzada), pero
+`fno_axial_attn` solo en 1 de 3 (`seed_44`) — `seed_42`/`seed_43` pararon antes de la
+primera época calibrada. `tests/unit/test_informe_coherencia.py` deja esta auditoría como
+guarda de regresión. Este backlog **sigue abierto**: el informe declara la salvedad, no
+implementa el fix.
+
 ---
 
 ## ✅ [spec-002-debt-001] Optimización GPU de U-Net temporal
