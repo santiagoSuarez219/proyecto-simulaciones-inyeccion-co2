@@ -1,0 +1,20 @@
+# Dependencias base de fno_co2, en espejo de [project.dependencies] en pyproject.toml.
+# Fuente de verdad: pyproject.toml (instalación normal: pip install -e ".[dev]").
+# Este archivo es para instalar solo las dependencias sin modo editable
+# (pip install -r requirements.txt), p. ej. en una imagen Docker o entorno de servidor.
+# Versiones fijadas a la combinación verificada en este proyecto (Python 3.12, CUDA).
+torch==2.13.0
+numpy==2.5.1
+tqdm==4.68.4
+matplotlib==3.11.0
+pandas==3.0.3
+openpyxl==3.1.5
+scikit-learn==1.9.0
+PyYAML==6.0.3
+
+# Extras opcionales (equivalentes a pip install -e ".[dev]" / ".[db]"):
+# -- dev --
+# pytest==9.1.1
+# -- db (ETL a MySQL/SQL Server) --
+# mysql-connector-python
+# pyodbc
