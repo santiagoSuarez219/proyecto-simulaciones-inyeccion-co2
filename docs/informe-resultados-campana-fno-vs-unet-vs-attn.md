@@ -7,7 +7,7 @@
 > Este es un informe **curado**, pensado para lectura de principio a fin por investigadores
 > de geomecánica y CCS. Complementa —no reemplaza— el reporte de máquina
 > `outputs/campaigns/fno_vs_unet_vs_attn/campaign_report.md` y el registro detallado
-> `docs/experiments.md`, de donde provienen las cifras citadas aquí (ver §10,
+> `docs/experiments.md`, de donde provienen las cifras citadas aquí (ver §11,
 > Reproducibilidad).
 
 ---
@@ -91,7 +91,7 @@ reemplazo), pensado para aislar el efecto de "añadir atención".
 ## 4. Dataset y metodología
 
 - **Split:** 90/10 estratificado train/test (`scripts/etl/make_split.py`), fijo para las
-  tres variantes — checksum `f51dfe25…529c95d` (§10) garantiza que las tres entrenaron y
+  tres variantes — checksum `f51dfe25…529c95d` (§11) garantiza que las tres entrenaron y
   validaron sobre exactamente el mismo split.
 - **Normalización:** min-max global `[0,1]` calculada **solo** sobre `train/` y aplicada
   también a `test/`, sin fuga de datos (corrección C1 de `spec-000`).
@@ -253,7 +253,33 @@ existe una deuda técnica conocida que afecta su cálculo:
 
 ---
 
-## 10. Reproducibilidad
+## 10. Trabajo futuro
+
+Líneas de seguimiento identificadas por esta campaña, ninguna ejecutada aquí:
+
+1. **Repetir `fno_axial_attn` con un `lr` propio, más bajo que el heredado del baseline**
+   (§7). Es la línea de mayor prioridad: el veredicto "no cumple" de esta campaña refleja
+   una configuración de `lr` no ajustada a la arquitectura, no necesariamente que la
+   atención espacial axial no aporte — `unet_film` solo alcanzó paridad tras un ajuste
+   análogo (`lr: 8e-4 → 3e-5`, §3). Sin este experimento, la hipótesis de la atención axial
+   sigue sin descartarse de forma concluyente.
+2. **Corregir `spec-004-debt-001`** (`do_uncertainty` en `training/loop.py`, backlog) para
+   que la incertidumbre MC-Dropout se calcule siempre en la última época de cada corrida,
+   no solo en múltiplos de `uncertainty_eval_interval`. Hoy impide comparar incertidumbre
+   entre variantes con evidencia completa (`fno_axial_attn` quedó en n=1, §8) y bloquea
+   incluir incertidumbre como criterio de comparación en un futuro informe.
+3. **Aumentar el número de semillas por variante** (hoy n=3, el mínimo que exige el
+   framework) para alcanzar significancia estadística convencional en la comparación
+   vs. baseline (§6), donde n=3 topa el p-valor mínimo posible en 0.25.
+4. **Replicar con un split de datos distinto** y, si hay datos disponibles, con
+   simulaciones CMG adicionales — esta campaña corrió sobre un único split fijo (§8).
+5. **Validar contra mediciones de campo**, cuando estén disponibles, para acotar hasta
+   qué punto las conclusiones (basadas en datos sintéticos CMG) se sostienen fuera del
+   régimen de esos escenarios simulados.
+
+---
+
+## 11. Reproducibilidad
 
 - **Commit evaluado:** `0e2b03f0b1a84bf1d205f5caf6373be2c8d00ede` (árbol limpio).
 - **Split checksum:** `f51dfe25cd14120e5624aefdc4b212b88b16610b71a11aaf143d3b8fa529c95d`

@@ -273,13 +273,23 @@ concreta.
    comando exacto para regenerar las figuras (`scripts/plot_campaign_comparison.py`).
 
 **Criterios de aceptación (Fase 2):**
-- [x] El informe existe en `docs/`, en español, con las 10 secciones y narrativa curada.
+- [x] El informe existe en `docs/`, en español, con las 10 secciones de §1.2 y narrativa
+      curada. **(Actualización post-cierre 2026-07-21: se añadió una 11ª sección, "Trabajo
+      futuro", a pedido del usuario — ver nota al final de esta Fase 2.)**
 - [x] Las tablas coinciden con `campaign_report.md` y llevan nota de procedencia.
 - [x] Las figuras de la Fase 1 se embeben y renderizan por ruta relativa.
 - [x] La salvedad de incertidumbre está declarada explícitamente en Limitaciones, con (a)–(d).
 - [x] Ninguna cifra de incertidumbre proviene de la fila final (0.0) — el informe no cita
       cifras de incertidumbre en absoluto (decisión del usuario: secundaria), solo declara
       la salvedad y los valores auditados de la última época calibrada en prosa.
+
+**Nota post-cierre (2026-07-21):** tras el veredicto `[DONE]` y el merge a `development`, el
+usuario pidió añadir una sección de "Trabajo futuro". Se agregó como §10 del informe (antes
+de Reproducibilidad, que pasó de §10 a §11), consolidando: (1) repetir `fno_axial_attn` con
+`lr` propio (ya mencionado en §7 como línea de investigación no ejecutada); (2) corregir
+`spec-004-debt-001`; (3) más semillas para significancia estadística; (4) replicar con otro
+split; (5) validar contra datos de campo. No reabre ningún hallazgo científico ni cambia
+ninguna cifra ya reportada — es una adición de cierre, no un cambio de scope.
 
 ---
 
@@ -401,8 +411,10 @@ recomputación mean/std) se valida con datos sintéticos siguiendo el patrón de
 ## 5. Criterios de aceptación (globales)
 
 - [x] Existe `docs/informe-resultados-campana-fno-vs-unet-vs-attn.md`, curado, en español, con
-      las 10 secciones (resumen, contexto, arquitecturas, metodología, resultados, estadística,
-      discusión, limitaciones, conclusiones, reproducibilidad).
+      las secciones de §1.2 (resumen, contexto, arquitecturas, metodología, resultados,
+      estadística, discusión, limitaciones, conclusiones, reproducibilidad) más una 11ª
+      sección "Trabajo futuro" añadida el 2026-07-21 a pedido del usuario (consolida la
+      línea de investigación de §7 y las limitaciones de §8 en próximos pasos accionables).
 - [x] El informe reporta y compara las 3 variantes con métricas (mean±std), análisis estadístico
       vs. baseline y figuras comparativas agregadas de convergencia.
 - [x] Las tablas coinciden **exactamente** con `campaign_report.md` (verificado por test) y
