@@ -1,5 +1,49 @@
 # Backlog de Deuda Técnica
 
+## ⬜ [spec-004-debt-001] `do_uncertainty` compara contra `cfg.epochs`, no contra la época real de early stopping
+
+**Prioridad:** BAJA (no bloquea Fase 7; el `val_sf_unc`/`val_vd_unc` final puede quedar en 0
+si el intervalo nunca coincide, pero eso ya pasa hoy — no es una regresión de spec-004).
+**Componente:** `src/fno_co2/training/loop.py::main`, línea `do_uncertainty = ... epoch ==
+cfg.epochs ...`.
+
+### Problema
+
+`do_uncertainty` (dispara la calibración/evaluación cara con MC-Dropout, spec-000 M/C2)
+decide "época final" comparando `epoch == cfg.epochs` — el máximo **configurado** (p. ej.
+100), no la época donde el early stopping realmente detiene el entrenamiento (`cfg.epochs`
+nunca se reasigna a ese valor). Con `early_stopping_patience=5` y el histórico real de
+`baseline` (mejores épocas 12/19/14, corridas totales ~17-24), esa rama casi nunca se
+activa: el único disparo real viene del término periódico
+(`epoch % uncertainty_eval_interval == 0`), que puede o no coincidir con la última época de
+la corrida. Esto significa que el `val_sf_unc`/`val_vd_unc` de la fila final de
+`metrics_history.json` no necesariamente refleja la incertidumbre calibrada en la mejor
+época — puede ser 0.0 (nunca calculada) si el intervalo no coincidió con ninguna época de
+la corrida.
+
+**Descubierto durante:** `spec-004` Fase 7, evaluando si `uncertainty_eval_interval` podía
+subirse/deshabilitarse para acelerar los timing probes (ver `spec-004` §7.0, "Ajuste
+descartado"). No se tocó ningún config por este hallazgo.
+
+### Solución propuesta (no implementada)
+
+Que el loop reconozca "esta es la última época que se va a correr" (por early stopping o por
+alcanzar `cfg.epochs`) como caso especial de `do_uncertainty=True`, en vez de comparar contra
+el máximo configurado. Requiere restructurar el loop para saber de antemano (o detectar en el
+momento) que el próximo `break` por early stopping va a ocurrir, y forzar el cálculo de
+incertidumbre en esa época antes de salir.
+
+### Verificación pendiente
+
+- [ ] Repro: correr con `uncertainty_eval_interval` que no divida ninguna época del rango
+      real de una corrida corta (overfit o real) y confirmar `val_sf_unc=0.0` en la fila
+      final de `metrics_history.json`.
+- [ ] Fix + test de regresión: la fila final de una corrida con early stopping siempre tiene
+      incertidumbre calculada (`val_sf_unc > 0`), sin importar el valor de
+      `uncertainty_eval_interval`.
+
+---
+
 ## ✅ [spec-002-debt-001] Optimización GPU de U-Net temporal
 
 **Estado:** RESUELTO (2026-07-15). El OOM era un artefacto de correr **seeds en
@@ -68,9 +112,9 @@ Al expandir los skips de (B, C, H, W) a (B*T, C, H, W), se duplica el uso de mem
 
 ## ✅ [spec-002-debt-002] Investigar convergencia deficiente
 
-**Estado:** RESUELTO — mecanismo (2026-07-15). Diagnóstico con overfit de 1 muestra
-(gate de Fase 5.1) + fix aplicado + humo en verde. Falta solo la confirmación
-multi-seed real con GPU (Fase 5.3, gated por el usuario).
+**Estado:** RESUELTO por completo (2026-07-19). Diagnóstico con overfit de 1 muestra
+(Fase 5.1) + fix aplicado + humo en verde + **confirmación multi-seed real con GPU**
+(Fase 5.3, campaña `spec-004`) — ver detalle abajo.
 
 ### Causa raíz (dos bugs independientes)
 
@@ -106,8 +150,17 @@ multi-seed real con GPU (Fase 5.3, gated por el usuario).
       real del YAML (`h_dim=64`, `lr=3e-5`): `train_loss` E1=5.26 → E40=0.55,
       `sf_rmse` 0.31 → 0.036. Antes: divergía a millones.
 - [x] `pytest tests/ -m "not slow"` en verde (135 passed), incl. `test_mc_dropout_active`.
-- [ ] **Pendiente (Fase 5.3, GPU + confirmación del usuario):** corrida multi-seed
-      real ≥3 seeds y comprobar `val_sf_r2` cercano al baseline en datos completos.
+- [x] **Fase 5.3 completada (2026-07-16/19, campaña `spec-004`, GPU real, `use_amp=true`):**
+      3 seeds (42/43/44), datos completos, 19-25 épocas cada una (early stopping).
+      `val_sf_r2 = 0.9920 ± 0.0002`, `val_vd_r2 = 0.9650 ± 0.0010` — dentro del criterio de
+      no-degradación fijado en `spec-002` Fase 5 (`val_sf_r2 ≥ 0.974`, `val_vd_r2 ≥ 0.9430`,
+      ambos con holgura amplia). **Matiz importante:** el rango mean±std de `val_sf_r2` de
+      `unet_film` ([0.9918, 0.9922]) **no se solapa** con el de `baseline` ([0.9936, 0.9938])
+      y su mean queda **por debajo**, no por encima — por la regla anti-solapamiento del
+      propio criterio de `spec-002` Fase 5, el veredicto correcto es **"equivalente" a
+      baseline dentro del margen aceptado, no "mejora"**. Ninguna seed convergió con
+      inestabilidad ni MC-Dropout trivial. Backlog cerrado: la U-Net FiLM es una alternativa
+      arquitectónica viable, con paridad de desempeño frente a baseline, no una mejora.
 
 <details><summary>Reporte original (histórico)</summary>
 

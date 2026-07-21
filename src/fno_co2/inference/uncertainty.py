@@ -100,6 +100,11 @@ def calibrate_uncertainty(model, val_loader, cfg: Config, device: torch.device):
         return default_uncertainty_calibration()
 
     model.eval()
+    # Antes de esta corrección, calibrate_uncertainty corría siempre en fp32 completo sin
+    # importar cfg.use_amp (a diferencia de la rama de incertidumbre en evaluate_epoch,
+    # loop.py, que ya usaba autocast) — medido: ~107 min con o sin AMP, cero mejora. Mismo
+    # patron de autocast que el resto del pipeline (loop.py::_AMP_DTYPE = bfloat16).
+    autocast_enabled = bool(cfg.use_amp) and device.type == "cuda"
     sf_std_values = []
     vd_std_values = []
     sf_abs_error_values = []
@@ -113,7 +118,11 @@ def calibrate_uncertainty(model, val_loader, cfg: Config, device: torch.device):
             inj = inj.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
 
-            pred_mean, pred_std = predict_with_uncertainty(model, x, d, inj, cfg.uncertainty_passes)
+            with torch.autocast(device_type=device.type, enabled=autocast_enabled, dtype=torch.bfloat16):
+                pred_mean, pred_std = predict_with_uncertainty(model, x, d, inj, cfg.uncertainty_passes)
+            # bajo AMP los preds salen en bfloat16; torch.quantile (_quantile_capped) no lo acepta.
+            pred_mean = pred_mean.float()
+            pred_std = pred_std.float()
             abs_error = (pred_mean - y).abs()
 
             sf_std_values.append(pred_std[:, :, 0].reshape(-1).cpu())

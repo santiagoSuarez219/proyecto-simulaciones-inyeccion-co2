@@ -1,9 +1,15 @@
 # spec-002 — Variante de arquitectura U-Net con condicionamiento FiLM temporal [DONE]
 
 > **Autor:** rol `@architect`
-> **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-15 (implementación completada)
-> **Estado:** [DONE] — Fases 1-5 implementadas. Arquitectura correcta, tests pasan (135/135),
-> entrenamiento funcional. Deuda técnica (optimización GPU) documentada en backlog.
+> **Fecha:** 2026-07-02 · **Actualizado:** 2026-07-19 (Fase 5 cerrada con corrida multi-seed
+> real vía la campaña de `spec-004`)
+> **Estado:** [DONE] — Fases 1-5 completas, incluida la corrida multi-seed real (Fase 5.3,
+> antes pendiente): 3 seeds, datos completos, GPU real. `val_sf_r2 = 0.9920 ± 0.0002`,
+> `val_vd_r2 = 0.9650 ± 0.0010` — dentro del criterio de no-degradación (`≥0.974`/`≥0.9430`).
+> Por la regla anti-solapamiento del propio criterio (§Fase 5), el veredicto es
+> **"equivalente" a baseline, no "mejora"** (mean de `val_sf_r2` levemente por debajo del de
+> baseline, rangos sin solapar). Detalle en `specs/backlog.md` (`spec-002-debt-002`) y
+> `docs/experiments.md`.
 > **Depende de:** `spec-001` (framework de experimentación y comparación de
 > arquitecturas). Este spec es la **primera variante estructural** que consume ese
 > framework (spec-001 §Fase 3): vive en `models/variants/`, se registra en
@@ -298,6 +304,16 @@ slow"` completo sigue verde (no se rompe `spec-000`/`spec-001`).
 
 **Verificación:** humo de overfit baja la loss; `docs/experiments.md` tiene la fila
 `unet_film` con criterio predefinido y resultados multi-seed vs. baseline.
+
+> ✅ **Cumplida (2026-07-19), vía la campaña `fno_vs_unet_vs_attn` de `spec-004`** (no con
+> `run_experiment.py` directo como decía el paso 3 original — la campaña internamente
+> reutiliza ese mismo camino de código, sin reimplementarlo). 3 seeds (42/43/44), 19-25
+> épocas cada una (early stopping), `use_amp=true`: `val_sf_r2 = 0.9920 ± 0.0002`,
+> `val_vd_r2 = 0.9650 ± 0.0010`, `val_sf_rmse = 0.0103 ± 0.0001`, `val_vd_rmse = 0.0195 ±
+> 0.0003`. Cumple el umbral de no-degradación (`≥0.974`/`≥0.9430`) con holgura amplia. Por
+> la regla anti-solapamiento del criterio: rango de `val_sf_r2` de `unet_film` ([0.9918,
+> 0.9922]) no se solapa con el de `baseline` ([0.9936, 0.9938]) y su mean queda por debajo
+> → veredicto **"equivalente", no "mejora"**. Valores crudos por seed en `docs/experiments.md`.
 
 ---
 
