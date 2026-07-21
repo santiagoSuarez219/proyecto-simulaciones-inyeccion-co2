@@ -1,7 +1,14 @@
-# Mantener `main` limpio de `docs/`, `specs/` y `CLAUDE.md`
+# Mantener `main` limpio de `docs/`, `specs/`, `CLAUDE.md`, `legacy/` y `notebooks/`
 
-**Regla del repo:** `docs/`, `specs/` y `CLAUDE.md` viven **solo en `development`**.
-La rama `main` **nunca** debe contenerlos.
+**Regla del repo:** `docs/`, `specs/`, `CLAUDE.md`, `legacy/` y `notebooks/` viven **solo en
+`development`**. La rama `main` **nunca** debe contenerlos.
+
+`main` se comparte con investigadores cuyo alcance es el análisis de resultados, no la
+producción del pipeline. `docs/`, `specs/` y `CLAUDE.md` son material de trabajo interno;
+`legacy/` es código ya migrado (`cmg2tensor`, solo referencia histórica) y `notebooks/` son
+exploratorios no productivos — ninguno le sirve a ese público. Los informes curados
+pensados para ese público (p. ej. `resultados/`) se colocan deliberadamente **fuera** de
+`docs/` para que sí se promuevan a `main`.
 
 ## Por qué no basta con `.gitignore` ni `merge=ours`
 
@@ -21,7 +28,7 @@ declarativa.
 **No uses `git merge development` directamente sobre `main`.** Usa:
 
 ```bash
-# Merge development -> main quitando docs/, specs/, CLAUDE.md (no hace push)
+# Merge development -> main quitando docs/, specs/, CLAUDE.md, legacy/, notebooks/ (no hace push)
 scripts/promote-to-main.sh
 
 # Revisa el resultado y luego sube:
@@ -34,7 +41,7 @@ scripts/promote-to-main.sh --push
 El script:
 1. Verifica árbol limpio y adelanta `main` a `origin/main`.
 2. Hace `git merge --no-ff --no-commit development`.
-3. Elimina `docs/`, `specs/`, `CLAUDE.md` del índice y del árbol.
+3. Elimina `docs/`, `specs/`, `CLAUDE.md`, `legacy/` y `notebooks/` del índice y del árbol.
 4. Cierra el commit de merge y **verifica** que no quedó ninguna ruta protegida.
 5. Te deja de vuelta en tu rama original. Solo hace push con `--push`.
 

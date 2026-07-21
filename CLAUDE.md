@@ -527,16 +527,22 @@ Los specs completados **no se borran**; se marcan con `[DONE]` en el título.
   se desprenden de aquí.
 - Al mergear una rama a `development`, eliminarla inmediatamente.
 
-### `main` limpio de `docs/`, `specs/` y `CLAUDE.md`
+### `main` limpio de `docs/`, `specs/`, `CLAUDE.md`, `legacy/` y `notebooks/`
 
-Estas tres rutas viven **solo en `development`**; `main` **nunca** debe contenerlas.
-Un `git merge development` normal las arrastraría a `main` (`.gitignore` y `merge=ours`
-no lo impiden). Para actualizar `main` usar **siempre**:
+Estas rutas viven **solo en `development`**; `main` **nunca** debe contenerlas. `main` se
+comparte con investigadores cuyo alcance es el análisis de resultados, no la producción del
+pipeline: `docs/`, `specs/` y `CLAUDE.md` son material de trabajo interno (specs, decisiones
+de arquitectura); `legacy/` es código ya migrado (solo referencia histórica) y `notebooks/`
+son exploratorios no productivos. Un `git merge development` normal las arrastraría a `main`
+(`.gitignore` y `merge=ours` no lo impiden). Para actualizar `main` usar **siempre**:
 
 ```bash
-scripts/promote-to-main.sh            # merge sin docs/, specs/, CLAUDE.md (no hace push)
+scripts/promote-to-main.sh            # merge sin docs/, specs/, CLAUDE.md, legacy/, notebooks/ (no hace push)
 scripts/promote-to-main.sh --push     # además sube a origin/main
 ```
+
+Los informes curados pensados para ese público (p. ej. `resultados/`) **sí** se promueven a
+main: van fuera de `docs/` justamente para no quedar atrapados por esta exclusión.
 
 Nunca hacer `git merge development` ni `git push ... main` a mano. El hook `pre-push`
 (`.githooks/pre-push`, instalar con `scripts/install-git-hooks.sh` una vez por clon) bloquea
