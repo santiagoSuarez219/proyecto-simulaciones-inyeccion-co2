@@ -155,8 +155,6 @@ heredados del baseline.
 
 ## 8. Trabajo futuro
 
-Líneas de seguimiento identificadas por esta campaña, ninguna ejecutada aquí:
-
 1. **Repetir `fno_axial_attn` con un `lr` propio.** Es la de mayor prioridad: el veredicto
    "no cumple" refleja un `lr` heredado sin ajustar, no necesariamente que la atención
    axial no aporte — `unet_film` solo alcanzó paridad tras un ajuste análogo
