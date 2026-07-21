@@ -76,8 +76,6 @@ costo O(N²) de la atención densa sobre 100×100 = 10 000 posiciones). **Hipót
   - `baseline` es la referencia; no se evalúa contra sí misma.
 - **Métricas:** R² y RMSE de validación para SF y VD, en la época del `best.pt` de cada
   semilla (menor `val_loss`).
-- **Comparación estadística:** test no paramétrico (Wilcoxon/Mann-Whitney) por métrica,
-  `unet_film`/`fno_axial_attn` vs. `baseline`, sobre los 3 valores por semilla.
 
 ---
 
@@ -137,16 +135,6 @@ con esta configuración: el desempeño es inferior al baseline en las cuatro mé
 dispersión entre semillas (`std` de `val_sf_rmse` = 0.0021, más del doble que `unet_film` o
 `baseline`) sugiere una arquitectura menos estable con los mismos hiperparámetros
 heredados del baseline.
-
-**Observación adicional: early stopping muy temprano en `fno_axial_attn`.** Sus tres
-semillas pararon en las épocas 7, 8 y 11 — sensiblemente antes que `baseline` (17-24) y
-`unet_film` (19-25). Esto es consistente con una arquitectura más sensible al `lr`
-heredado del baseline (a diferencia de `unet_film`, que sí requirió y recibió un ajuste de
-`lr` propio). El pico de inestabilidad de una sola época observado en
-`fno_axial_attn/seed_44` (§5, nota de la figura) refuerza esta lectura. **Línea de
-investigación futura, no ejecutada en esta campaña:** repetir `fno_axial_attn` con un
-`lr` más bajo, análogo al ajuste que ya benefició a `unet_film`, antes de descartar la
-hipótesis de la atención axial por completo.
 
 ---
 
