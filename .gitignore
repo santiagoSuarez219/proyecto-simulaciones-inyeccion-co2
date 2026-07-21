@@ -18,7 +18,19 @@ outputs/figures/*
 outputs/*.json
 outputs/*.png
 
+# spec-001: outputs/<experiment_name>/ (seed_<seed>/, run_manifest.json, config, etc.)
+# — mismo criterio que el resto de outputs/: generado en runtime, no versionado. Los tres
+# subdirectorios de siempre se re-incluyen para que las reglas de arriba (que solo ignoran
+# su contenido, no el directorio) sigan aplicando igual que antes.
+outputs/*/
+!outputs/checkpoints/
+!outputs/logs/
+!outputs/figures/
+
 # ETL (fno_co2.etl, ex-cmg2tensor): datos y artefactos generados, no versionados
+# /data es un symlink a disco externo (ver specs/backlog.md, notas de hardware) — nunca
+# debe rastrearse, ni siquiera por accidente con un `git add` amplio.
+/data
 data/raw/*
 data/processed/*
 *.pt
@@ -38,3 +50,6 @@ reports/subset_split.csv
 
 *.log
 sql/simulaciones.db
+
+# scripts/train.py escribe por defecto en output/ (singular); nunca versionar
+/output/

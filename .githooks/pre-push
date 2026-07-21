@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==========================================================================
 # pre-push — Red de seguridad: BLOQUEA cualquier push a main que contenga
-# docs/, specs/ o CLAUDE.md. Complementa a scripts/promote-to-main.sh
+# docs/, specs/, CLAUDE.md, legacy/ o notebooks/. Complementa a scripts/promote-to-main.sh
 # (el metodo correcto para actualizar main). Este hook atrapa el olvido de
 # usar el script (p. ej. un `git push origin development:main` accidental).
 #
@@ -14,7 +14,7 @@
 # ==========================================================================
 set -euo pipefail
 
-PROTECTED_RE='^(docs/|specs/|CLAUDE\.md)'
+PROTECTED_RE='^(docs/|specs/|CLAUDE\.md|legacy/|notebooks/)'
 ZERO="0000000000000000000000000000000000000000"
 
 while read -r local_ref local_sha remote_ref remote_sha; do
@@ -23,7 +23,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   if git ls-tree -r "$local_sha" --name-only | grep -qE "$PROTECTED_RE"; then
     echo "pre-push: BLOQUEADO — el commit $local_sha destinado a main contiene" >&2
-    echo "          docs/, specs/ o CLAUDE.md, que no deben vivir en main." >&2
+    echo "          docs/, specs/, CLAUDE.md, legacy/ o notebooks/, que no deben vivir en main." >&2
     echo "          Usa 'scripts/promote-to-main.sh' para promover sin esas rutas." >&2
     exit 1
   fi

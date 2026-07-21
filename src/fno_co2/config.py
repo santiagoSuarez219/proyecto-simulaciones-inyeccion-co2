@@ -1,10 +1,13 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from pathlib import Path
+
+import yaml
 
 
 @dataclass
 class Config:
-    data_root: str = "."
+    data_root: str = "data/processed"
     train_dir: str | None = "train"
     val_dir: str | None = "test"
     output_dir: str = "./output"
@@ -13,6 +16,8 @@ class Config:
     device: str | None = "cuda"
     seed: int = 42
     deterministic: bool = False
+    experiment_name: str = "baseline"
+    model_variant: str = "fno_baseline"
 
     batch_size: int = 4
     epochs: int = 100
@@ -32,6 +37,9 @@ class Config:
     spectral_modes: int = 16
     dropout_p: float = 0.1
     use_group_norm: bool = False  # M3, EXPERIMENTAL — ver docstring en models/blocks.py::ResBlock
+    unet_depth: int = 3  # Solo afecta a la variante unet_film; baseline lo ignora
+    attn_heads: int = 4  # spec-003: número de cabezas de atención axial (solo afecta fno_axial_attn)
+    attn_num_blocks: int = 4  # spec-003: cuántos de los 4 bloques llevan atención intercalada
 
     auto_resume: bool = True
     pause_hour: int = 7
@@ -53,6 +61,23 @@ class Config:
     # best.pt usan SIEMPRE el forward determinista por epoca; la incertidumbre es un
     # diagnostico periodico. <=0 => solo en la epoca final. La epoca final siempre se computa.
     uncertainty_eval_interval: int = 10
+
+
+def load_config_from_yaml(path: str | Path) -> Config:
+    """Carga un `Config` desde un YAML autocontenido (spec-001 Fase 2). El archivo debe
+    declarar solo campos existentes en el dataclass `Config` — cualquier clave desconocida
+    o campo faltante hace fallar la carga explícito en vez de silenciarlo."""
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+
+    valid_keys = {f.name for f in fields(Config)}
+    unknown_keys = set(data) - valid_keys
+    if unknown_keys:
+        raise ValueError(
+            f"{path}: claves desconocidas para Config: {sorted(unknown_keys)}"
+        )
+
+    return Config(**data)
 
 
 CFG = Config()

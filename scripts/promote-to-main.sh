@@ -2,13 +2,20 @@
 # ==========================================================================
 # promote-to-main.sh — Promueve una rama (por defecto: development) a main
 # excluyendo SIEMPRE las rutas que no deben vivir en main:
-#   docs/  specs/  CLAUDE.md
+#   docs/  specs/  CLAUDE.md  legacy/  notebooks/
 #
 # Motivo: un `git merge development` normal arrastraria esos archivos a main
 # (los archivos NUEVOS de una rama se anaden en el merge sin pasar por ningun
 # driver de .gitattributes; merge=ours NO los detiene). Este script hace el
 # merge sin commitear, elimina esas rutas del indice y del arbol, y recien
 # entonces cierra el commit de merge.
+#
+# docs/, specs/ y CLAUDE.md son material de trabajo interno (specs, decisiones
+# de arquitectura, deuda tecnica). legacy/ es codigo ya migrado (cmg2tensor,
+# solo referencia historica) y notebooks/ son exploratorios no productivos.
+# main esta compartido con investigadores cuyo alcance es el analisis de
+# resultados, no la produccion del pipeline: informes curados para ese
+# publico van fuera de docs/, en resultados/ (SI se promueve a main).
 #
 # Uso:
 #   scripts/promote-to-main.sh                 # merge development -> main (no hace push)
@@ -20,8 +27,8 @@
 set -euo pipefail
 
 # Rutas protegidas: nunca deben quedar en main.
-PROTECTED=(docs specs CLAUDE.md)
-PROTECTED_RE='^(docs/|specs/|CLAUDE\.md)'
+PROTECTED=(docs specs CLAUDE.md legacy notebooks)
+PROTECTED_RE='^(docs/|specs/|CLAUDE\.md|legacy/|notebooks/)'
 
 SOURCE_BRANCH="development"
 DO_PUSH=false
@@ -94,7 +101,7 @@ if git ls-tree -r HEAD --name-only | grep -qE "$PROTECTED_RE"; then
   cleanup
   exit 1
 fi
-echo "==> OK: main actualizado y limpio (sin docs/, specs/ ni CLAUDE.md)."
+echo "==> OK: main actualizado y limpio (sin docs/, specs/, CLAUDE.md, legacy/ ni notebooks/)."
 
 if $DO_PUSH; then
   git push origin main

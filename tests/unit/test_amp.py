@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from fno_co2.config import Config
-from fno_co2.inference.uncertainty import default_uncertainty_calibration
+from fno_co2.inference.uncertainty import calibrate_uncertainty, default_uncertainty_calibration
 from fno_co2.models.fno import PhysicalFNOArchitecture
 from fno_co2.training.loop import _AMP_DTYPE, evaluate_epoch, run_one_epoch
 
@@ -93,6 +93,42 @@ def test_evaluate_epoch_amp_on_cuda_handles_bf16(compute_uncertainty):
     for key in ("loss", "sf_r2", "vd_r2", "sf_rmse", "vd_rmse",
                 "sf_uncertainty_mean", "sf_confidence_mean"):
         assert torch.isfinite(torch.tensor(result[key])), f"'{key}' no finito bajo AMP"
+
+
+def test_calibrate_uncertainty_with_use_amp_true_on_cpu_does_not_break():
+    """En CPU, use_amp=True debe ser un no-op seguro para calibrate_uncertainty tambien
+    (regresion: antes de este fix corria siempre en fp32 sin mirar cfg.use_amp en
+    absoluto — medido en GPU real, spec-004 §7.0: ~107 min con o sin AMP, cero mejora)."""
+    time_steps = 4
+    cfg = Config(time_steps=time_steps, use_amp=True, uncertainty_passes=5)
+    model = PhysicalFNOArchitecture(time_steps=time_steps, h_dim=16, modes=4, dropout_p=0.2)
+    loader = _build_dummy_loader(time_steps=time_steps, batch_size=2)
+
+    calibration = calibrate_uncertainty(model, loader, cfg, torch.device("cpu"))
+
+    for key in ("sf", "vd"):
+        assert torch.isfinite(torch.tensor(calibration[key]["alpha"]))
+        assert torch.isfinite(torch.tensor(calibration[key]["error_q95"]))
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requiere GPU CUDA (path real de AMP)")
+def test_calibrate_uncertainty_amp_on_cuda_handles_bf16():
+    """Regresion: bajo AMP predict_with_uncertainty sale en bfloat16; torch.quantile
+    (via _quantile_capped) no lo acepta. calibrate_uncertainty debe castear a float32
+    antes de acumular y no crashear con use_amp=True en CUDA."""
+    device = torch.device("cuda")
+    time_steps = 4
+    cfg = Config(time_steps=time_steps, hidden_dim=16, spectral_modes=4, batch_size=2,
+                 use_amp=True, dropout_p=0.2, uncertainty_passes=3)
+    model = PhysicalFNOArchitecture(time_steps=time_steps, h_dim=16, modes=4, dropout_p=0.2).to(device)
+    loader = _build_dummy_loader(time_steps=time_steps, batch_size=2)
+
+    calibration = calibrate_uncertainty(model, loader, cfg, device)
+
+    for key in ("sf", "vd"):
+        assert torch.isfinite(torch.tensor(calibration[key]["alpha"]))
+        assert torch.isfinite(torch.tensor(calibration[key]["error_q95"]))
 
 
 def test_film_spectral_block_fft_stays_finite_under_simulated_autocast():

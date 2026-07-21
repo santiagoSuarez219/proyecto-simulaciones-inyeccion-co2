@@ -31,7 +31,7 @@ def build_run_signature(cfg: Config, train_path: Path, val_path: Path):
         "seg_t1_20_weight": float(cfg.seg_t1_20_weight),
         "seg_t21_60_weight": float(cfg.seg_t21_60_weight),
         "overfit_sample_idx": cfg.overfit_sample_idx,
-        "model_name": "PhysicalFNOArchitectureRealInjection",
+        "model_name": cfg.model_variant,
     }
 
 
