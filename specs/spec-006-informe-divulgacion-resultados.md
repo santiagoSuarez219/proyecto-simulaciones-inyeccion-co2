@@ -17,6 +17,18 @@
 > comparativas y toda la información necesaria para interpretar y reproducir la comparación.
 > Es un artefacto **narrativo y curado**, no una tabla autogenerada — complementa (no
 > reemplaza) al `campaign_report.md` de máquina.
+>
+> **Corrección posterior (2026-07-21, aprobada por el usuario):** el informe y sus figuras
+> se reubicaron de `docs/informe-resultados-campana-fno-vs-unet-vs-attn.md` y
+> `docs/figures/campana-fno-vs-unet-vs-attn/` a `resultados/informe-resultados-campana-fno-vs-unet-vs-attn.md`
+> y `resultados/figures/campana-fno-vs-unet-vs-attn/`. Motivo: `docs/` quedó excluida de
+> `main` (§"`main` limpio de `docs/`...", `CLAUDE.md`) al ampliarse esa exclusión a
+> `legacy/` y `notebooks/`; como este informe sí debe llegar a `main` (audiencia de
+> investigadores de análisis de resultados), se sacó de `docs/` a un directorio propio no
+> protegido. De paso se recortó la versión curada (se quitaron §Análisis estadístico,
+> §Limitaciones y §Reproducibilidad, y las referencias a specs/commits/backlog) para no
+> exponer detalles de trabajo interno a esa audiencia. El §1.2 de este spec (ubicación
+> propuesta en `docs/`) queda desactualizado por esta corrección.
 
 ---
 
