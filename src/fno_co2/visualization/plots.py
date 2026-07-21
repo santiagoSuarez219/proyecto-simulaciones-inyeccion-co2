@@ -281,3 +281,116 @@ def save_epoch_visuals(model, dataset, epoch, out_dir, device, cfg: Config, cali
         plt.tight_layout(rect=(0, 0, 1, 0.95))
         plt.savefig(path / f"epoch_{epoch:03d}_uncertainty_timeline.png")
         plt.close(temporal_fig)
+
+
+# ==========================================
+# Figuras comparativas de campaña (spec-006 Fase 1)
+# ==========================================
+
+CAMPAIGN_METRIC_KEYS = ["val_sf_r2", "val_vd_r2", "val_sf_rmse", "val_vd_rmse"]
+CAMPAIGN_CURVE_KEYS = [
+    ("val_loss", "Val loss"),
+    ("val_sf_r2", "Val SF R2"),
+    ("val_vd_r2", "Val VD R2"),
+]
+
+
+def _best_epoch_row(history):
+    """Misma convencion que `scripts/aggregate_experiments.py::load_best_epoch_metrics`
+    (spec-001 F5): la epoca del `best.pt` es la de menor `val_loss`."""
+    return min(history, key=lambda row: row["val_loss"])
+
+
+def _percentile_ylim(variant_histories, key, low=2, high=98, pad=0.1):
+    """Rango de eje Y robusto a picos de inestabilidad de una sola epoca (p.ej. una
+    seed que diverge brevemente y se recupera): usa percentiles de **todos** los valores
+    crudos, no la media, para que el pico no domine la escala. No recorta datos, solo el
+    viewport — el pico sigue visible saliendo del marco. Generico, no hardcodea ninguna
+    variante/seed/epoca en particular."""
+    all_values = [row[key] for histories in variant_histories.values() for history in histories for row in history]
+    arr = np.asarray(all_values, dtype=float)
+    lo, hi = np.percentile(arr, [low, high])
+    span = hi - lo
+    if span <= 0:
+        span = abs(hi) if hi != 0 else 1.0
+    return float(lo - pad * span), float(hi + pad * span)
+
+
+def _epoch_mean_std(histories, key):
+    """Media/std de `key` por epoca a traves de las seeds de `histories` (una lista de
+    historiales por seed). Cada epoca solo promedia las seeds que llegaron a ella (n
+    decreciente por early stopping); con n=1 el std queda en 0 (banda de ancho 0, sin
+    fallar ni inventar dispersion)."""
+    per_seed_series = [{row["epoch"]: row[key] for row in history} for history in histories]
+    epochs = sorted(set().union(*(series.keys() for series in per_seed_series)))
+    means, stds, ns = [], [], []
+    for epoch in epochs:
+        values = np.asarray([series[epoch] for series in per_seed_series if epoch in series], dtype=float)
+        means.append(float(values.mean()))
+        stds.append(float(values.std(ddof=1)) if len(values) > 1 else 0.0)
+        ns.append(len(values))
+    return np.asarray(epochs), np.asarray(means), np.asarray(stds), np.asarray(ns)
+
+
+def save_campaign_comparison_plots(variant_histories, out_dir):
+    """Genera figuras comparativas agregadas de una campaña multi-variante x multi-seed
+    (spec-006 F1). `variant_histories` es `{variant_name: [history_seed_1, ...]}`, cada
+    `history_seed_i` la lista de filas por epoca ya cargada de un `metrics_history.json`
+    (mismo formato que `save_history_plots`). Funcion pura: no hace I/O de archivos de
+    entrada, esa responsabilidad vive en el llamador (`scripts/plot_campaign_comparison.py`).
+
+    Escribe dos PNG en `out_dir`:
+    - `campaign_convergence_curves.png`: val_loss/val_sf_r2/val_vd_r2 vs. epoca, una linea
+      por variante (media entre seeds) con banda +/-std (ver `_epoch_mean_std`). El eje Y
+      usa un rango robusto por percentil (`_percentile_ylim`) para que un pico de
+      inestabilidad de una sola epoca en una seed no aplaste la escala del resto — el pico
+      sigue siendo visible saliendo del marco, no se recorta el dato.
+    - `campaign_final_metrics.png`: barras mean+/-std por variante de las 4 metricas de
+      `CAMPAIGN_METRIC_KEYS`, tomadas en la epoca del `best.pt` de cada seed
+      (`_best_epoch_row`), misma convencion que `aggregate_experiments.py`.
+    """
+    if not variant_histories:
+        return
+
+    path = Path(out_dir)
+    ensure_dir(path)
+
+    variant_names = list(variant_histories.keys())
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    color_by_variant = {name: colors[i % len(colors)] for i, name in enumerate(variant_names)}
+
+    fig, axes = plt.subplots(1, len(CAMPAIGN_CURVE_KEYS), figsize=(6 * len(CAMPAIGN_CURVE_KEYS), 5))
+    for ax, (key, title) in zip(axes, CAMPAIGN_CURVE_KEYS):
+        for name in variant_names:
+            color = color_by_variant[name]
+            epochs, means, stds, _ns = _epoch_mean_std(variant_histories[name], key)
+            ax.plot(epochs, means, label=name, linewidth=2.0, color=color)
+            ax.fill_between(epochs, means - stds, means + stds, alpha=0.15, color=color)
+        ax.set_ylim(*_percentile_ylim(variant_histories, key))
+        ax.set_title(title)
+        ax.set_xlabel("Epoch")
+        ax.grid(alpha=0.3)
+        ax.legend(loc="best", fontsize=8)
+    fig.suptitle("Convergencia comparada entre variantes (media +/- std entre seeds)", fontsize=13)
+    plt.tight_layout(rect=(0, 0, 1, 0.95))
+    plt.savefig(path / "campaign_convergence_curves.png")
+    plt.close(fig)
+
+    fig, axes = plt.subplots(1, len(CAMPAIGN_METRIC_KEYS), figsize=(5 * len(CAMPAIGN_METRIC_KEYS), 5))
+    x = np.arange(len(variant_names))
+    for ax, key in zip(axes, CAMPAIGN_METRIC_KEYS):
+        means, stds = [], []
+        for name in variant_names:
+            best_rows = [_best_epoch_row(history) for history in variant_histories[name]]
+            values = np.asarray([float(row[key]) for row in best_rows], dtype=float)
+            means.append(float(values.mean()))
+            stds.append(float(values.std(ddof=1)) if len(values) > 1 else 0.0)
+        ax.bar(x, means, yerr=stds, capsize=4, color=[color_by_variant[name] for name in variant_names])
+        ax.set_xticks(x)
+        ax.set_xticklabels(variant_names, rotation=20, ha="right")
+        ax.set_title(key)
+        ax.grid(alpha=0.3, axis="y")
+    fig.suptitle("Metricas finales por variante (epoca del best.pt de cada seed)", fontsize=13)
+    plt.tight_layout(rect=(0, 0, 1, 0.95))
+    plt.savefig(path / "campaign_final_metrics.png")
+    plt.close(fig)
